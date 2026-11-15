@@ -176,8 +176,10 @@ export const connectCloud = (input: CloudSettings) => jsonPost<Telemetry>("links
 export const connectUDP = (input: UDPSettings) => jsonPost<Telemetry>("links/udp", input);
 export const connectTCP = (input: TCPSettings) => jsonPost<Telemetry>("links/tcp", input);
 export const connectSerial = (input: SerialSettings) => jsonPost<Telemetry>("links/serial", input);
-export type ReceiveTransport = "BROKER" | "CLOUD" | "SERIAL" | "UDP" | "TCP";
+export type ReceiveTransport = "BROKER" | "CLOUD" | "LAN" | "SERIAL" | "UDP" | "TCP";
 export type ReceiveConfig = BrokerSettings | CloudSettings | UDPSettings | TCPSettings | SerialSettings;
+export const connectLAN = (input: BrokerSettings) => jsonPost<Telemetry>("links/lan", input);
+export const connectBackupLAN = (input: BrokerSettings) => jsonPost<Telemetry>("links/backup/lan", input);
 export const connectBackupBroker = (input: BrokerSettings) => jsonPost<Telemetry>("links/backup/broker", input);
 export const connectBackupCloud = (input: CloudSettings) => jsonPost<Telemetry>("links/backup/cloud", input);
 export const connectBackupUDP = (input: UDPSettings) => jsonPost<Telemetry>("links/backup/udp", input);

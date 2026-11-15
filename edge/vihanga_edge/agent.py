@@ -1,13 +1,15 @@
-"""Vihanga single-owner Pi edge agent — strictly receive-only FC serial.
+"""Vihanga single-owner Pi edge: one UART, independent cloud and local LAN viewers.
 
-Airframe controller UART -> validated MAVLink -> private WSS cloud.
-The cloud never supplies vehicle actuation here. No serial write() exists.
+Both paths are read-only. Loss of Oracle/cloud does not release the Pi UART or
+interrupt locally authenticated telemetry. No serial write() exists here.
 """
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
 import fcntl
+from ipaddress import ip_address
+import time
 import logging
 import os
 from pathlib import Path
@@ -17,6 +19,7 @@ from urllib.parse import urlsplit
 import serial
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
 from websockets.asyncio.client import connect
+from vihanga_edge.lan import LanFanout
 
 LOG = logging.getLogger("vihanga.edge")
 VALID_MESSAGES = frozenset({
@@ -37,6 +40,11 @@ class Settings:
     cloud_wss: str
     token: str
     lockfile: str = "/tmp/vihanga-edge-serial.lock"
+    lan_token: str = ""
+    lan_bind_host: str = "127.0.0.1"
+    lan_port: int = 8765
+    lan_cert: str = ""
+    lan_key: str = ""
 
     def validate(self) -> None:
         if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{2,31}", self.vehicle_id):
@@ -55,6 +63,21 @@ class Settings:
             raise ValueError("Device token missing or too short")
         if not Path(self.lockfile).is_absolute():
             raise ValueError("Serial lock must be an absolute path")
+        if self.lan_token or self.lan_cert or self.lan_key:
+            if not self.lan_token or not self.lan_cert or not self.lan_key:
+                raise ValueError("All LAN token/TLS certificate/key fields are required")
+            if (len(self.lan_token) < 32 or any(c.isspace() for c in self.lan_token)
+                    or self.lan_token == self.token):
+                raise ValueError("LAN viewer must have an independent strong token")
+            try:
+                addr = ip_address(self.lan_bind_host)
+            except ValueError as exc:
+                raise ValueError("LAN listener must use a literal private IPv4 bind") from exc
+            if addr.version != 4 or (not addr.is_private and not addr.is_unspecified):
+                raise ValueError("LAN listener must bind private IPv4 or 0.0.0.0")
+            if not 1024 <= self.lan_port <= 65535:
+                raise ValueError("Invalid LAN TCP port")
+            LanFanout.tls_context(self.lan_cert, self.lan_key)
 
 
 def from_environment() -> Settings:
@@ -66,7 +89,12 @@ def from_environment() -> Settings:
             baud=int(os.environ.get("VIHANGA_EDGE_BAUD", "57600")),
             cloud_wss=os.environ["VIHANGA_EDGE_WSS"],
             token=os.environ["VIHANGA_EDGE_DEVICE_TOKEN"],
-            lockfile=os.environ.get("VIHANGA_EDGE_LOCKFILE", "/tmp/vihanga-edge-serial.lock"))
+            lockfile=os.environ.get("VIHANGA_EDGE_LOCKFILE", "/tmp/vihanga-edge-serial.lock"),
+            lan_token=os.environ.get("VIHANGA_EDGE_LAN_VIEW_TOKEN", ""),
+            lan_bind_host=os.environ.get("VIHANGA_EDGE_LAN_BIND", "127.0.0.1"),
+            lan_port=int(os.environ.get("VIHANGA_EDGE_LAN_PORT", "8765")),
+            lan_cert=os.environ.get("VIHANGA_EDGE_LAN_CERT", ""),
+            lan_key=os.environ.get("VIHANGA_EDGE_LAN_KEY", ""))
         settings.validate()
         return settings
     except (KeyError, ValueError) as exc:
@@ -108,8 +136,102 @@ class FrameGate:
         return frames
 
 
+
+class CloudUplink:
+    """Bounded, expendable queue. No queued MAVLink frames survive reconnection."""
+
+    def __init__(self):
+        self.queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+        self.websocket = None
+        self.dropped = 0
+
+    def offer(self, packet: bytes) -> None:
+        if self.queue.full():
+            self.queue.get_nowait()
+            self.dropped += 1
+        self.queue.put_nowait((time.monotonic(), packet))
+
+    def clear(self) -> None:
+        self.dropped += self.queue.qsize()
+        while not self.queue.empty():
+            self.queue.get_nowait()
+
+    async def invalidate(self) -> None:
+        self.clear()
+        if self.websocket is not None:
+            try:
+                await asyncio.wait_for(self.websocket.close(code=1012), timeout=2)
+            except (RuntimeError, OSError, asyncio.TimeoutError):
+                pass
+
+    async def run(self, settings: Settings) -> None:
+        failures = 0
+        while True:
+            try:
+                async with connect(
+                    settings.cloud_wss,
+                    additional_headers={"X-Vihanga-Device-Token": settings.token},
+                    open_timeout=10, close_timeout=3, ping_interval=15,
+                    max_size=1024, max_queue=8
+                ) as websocket:
+                    self.websocket = websocket
+                    failures = 0
+                    self.clear()
+                    LOG.info("Cloud telemetry connected for %s", settings.vehicle_id)
+                    while True:
+                        queued_at, packet = await self.queue.get()
+                        if time.monotonic() - queued_at > 1.5:
+                            self.dropped += 1
+                            continue
+                        await asyncio.wait_for(websocket.send(packet), timeout=3)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                failures += 1
+                LOG.warning("Cloud uplink unavailable; retry attempt %d", failures)
+            finally:
+                self.websocket = None
+                self.clear()
+            await asyncio.sleep(min(2 ** min(failures, 4), 20))
+
+
+async def read_uart(settings: Settings, uplink: CloudUplink,
+                    lan: LanFanout | None) -> None:
+    """UART remains independently owned even during total cloud outage."""
+    failures = 0
+    while True:
+        try:
+            gate = FrameGate(settings.system_id)
+            with serial.Serial(settings.port, settings.baud, timeout=0.2) as fc:
+                failures = 0
+                LOG.info("Vihanga UART reader active for %s", settings.vehicle_id)
+                while True:
+                    chunk = await asyncio.to_thread(fc.read, 512)
+                    if not chunk:
+                        continue
+                    for packet in gate.consume(bytes(chunk)):
+                        uplink.offer(packet)
+                        if lan is not None:
+                            lan.publish(packet)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            failures += 1
+            LOG.warning("Edge UART read failed; reopening attempt %d", failures)
+            # A dead UART must close both remote sessions so that consumers
+            # immediately invalidate their projector epochs and cached state.
+            await uplink.invalidate()
+            if lan is not None:
+                await lan.invalidate()
+            await asyncio.sleep(min(2 ** min(failures, 4), 20))
+
+
 async def forward(settings: Settings) -> None:
-    """One serial reader, one outbound WSS. No replay queue on reconnect."""
+    """One persistent UART producer and independently reconnecting consumers.
+
+    Local LAN remains available while the cloud is disconnected. No incoming
+    network payload is ever passed to serial or interpreted as a command.
+    """
     settings.validate()
     lock_path = Path(settings.lockfile)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -118,29 +240,19 @@ async def forward(settings: Settings) -> None:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise RuntimeError("Vihanga Edge UART is already owned by another instance") from exc
-        failures = 0
-        while True:
-            try:
-                async with connect(settings.cloud_wss,
-                                   additional_headers={"X-Vihanga-Device-Token": settings.token},
-                                   open_timeout=10, close_timeout=3, ping_interval=15,
-                                   max_size=1024, max_queue=8) as ws:
-                    failures = 0
-                    gate = FrameGate(settings.system_id)
-                    with serial.Serial(settings.port, settings.baud, timeout=0.2) as fc:
-                        LOG.info("Connected to cloud as %s; serial receive-only", settings.vehicle_id)
-                        while True:
-                            chunk = await asyncio.to_thread(fc.read, 512)
-                            if chunk:
-                                for frame in gate.consume(bytes(chunk)):
-                                    await ws.send(frame)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # Deliberately no secret, hostname, URL or COM port in logs.
-                failures += 1
-                LOG.warning("Edge telemetry disconnected; retry attempt %d", failures)
-                await asyncio.sleep(min(2 ** min(failures, 4), 20))
+        uplink = CloudUplink()
+        lan = LanFanout(settings.vehicle_id, settings.lan_token) if settings.lan_token else None
+        if lan is None:
+            async with asyncio.TaskGroup() as group:
+                group.create_task(read_uart(settings, uplink, None))
+                group.create_task(uplink.run(settings))
+        else:
+            context = LanFanout.tls_context(settings.lan_cert, settings.lan_key)
+            async with lan.server(settings.lan_bind_host, settings.lan_port, context):
+                LOG.info("Private TLS LAN telemetry viewer enabled for %s", settings.vehicle_id)
+                async with asyncio.TaskGroup() as group:
+                    group.create_task(read_uart(settings, uplink, lan))
+                    group.create_task(uplink.run(settings))
 
 
 def main() -> None:

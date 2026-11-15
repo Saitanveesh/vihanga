@@ -6,6 +6,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import ssl
+from pathlib import Path
+from ipaddress import ip_address, ip_network
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from math import degrees, isfinite
@@ -63,6 +66,47 @@ def validate_broker_origin(origin: str) -> str:
         if str(exc).startswith("Literal IP"):
             raise
     return "https://" + host + (":" + str(port) if port is not None else "")
+
+
+class LanConnect(StrictModel):
+    """Direct secure Wi-Fi connection to the Pi, not an Oracle broker."""
+    vehicle_id: str = Field(pattern=r"^[A-Z0-9][A-Z0-9_-]{2,31}$")
+    origin: str = Field(min_length=20, max_length=255)
+    viewer_token: str = Field(min_length=32, max_length=512)
+    fc_system_id: int = Field(ge=1, le=254)
+
+
+def validate_lan_origin(origin: str) -> str:
+    """Direct local TLS only; forbid DNS rebinding, credentials and Internet IPs."""
+    try:
+        p = urlsplit(origin)
+        host = p.hostname
+        port = p.port
+        addr = ip_address(host) if host else None
+    except ValueError as exc:
+        raise ValueError("Expected a direct private IPv4 LAN HTTPS origin") from exc
+    allowed = bool(addr is not None and addr.version == 4 and any(
+        addr in ip_network(cidr) for cidr in (
+            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"
+        )))
+    if (p.scheme != "https" or not allowed or
+            port is None or not 8765 <= port <= 8775 or
+            p.path not in ("", "/") or p.username or p.password or
+            p.query or p.fragment):
+        raise ValueError("LAN receiver must use private IPv4 HTTPS on an approved port")
+    return f"https://{host}:{port}"
+
+
+def verified_lan_ssl() -> ssl.SSLContext:
+    """Require operator-provisioned trust anchor and TLS hostname checking."""
+    cert = os.environ.get("VIHANGA_LAN_CA_CERT", "")
+    if not cert or not Path(cert).is_absolute() or not Path(cert).is_file():
+        raise ValueError("Configure VIHANGA_LAN_CA_CERT to a trusted local Pi certificate")
+    context = ssl.create_default_context(cafile=cert)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    return context
 
 
 class UDPConnect(StrictModel):
@@ -427,6 +471,7 @@ class LinkManager:
                 raise ValueError("Remove the existing backup receiver first")
             kinds = {
                 BrokerConnect: ("VIHANGA_CLOUD_V2", "start_broker"),
+                LanConnect: ("DIRECT_LAN_WSS", "start_lan"),
                 CloudConnect: ("PRIVATE_CLOUD_WSS", "start_cloud"),
                 SerialConnect: ("LOCAL_SERIAL_RECEIVE", "start_serial"),
                 TCPConnect: ("LOCAL_TCP_RECEIVE", "start_tcp"),
@@ -623,6 +668,60 @@ class LinkManager:
         finally:
             if session.tcp_writer is not None:
                 session.tcp_writer.close()
+
+    async def start_lan(self, request: LanConnect):
+        if request.vehicle_id in self.sessions:
+            raise ValueError("Disconnect the existing aircraft link first")
+        origin = validate_lan_origin(request.origin)
+        # Validate certificate trust *before* starting the background task.
+        context = verified_lan_ssl()
+        session = Session(request.vehicle_id, "DIRECT_LAN_WSS",
+                          MAVLinkProjector(request.fc_system_id))
+        self.sessions[request.vehicle_id] = session
+        session.task = asyncio.create_task(
+            self._run_lan(session, origin, request.viewer_token, context))
+        return session.snapshot()
+
+    async def _run_lan(self, session: Session, origin: str,
+                       token: str, context: ssl.SSLContext):
+        """Authenticated, certificate-verified receive-only LAN client.
+
+        This transport has no outbound MAVLink data path. Network loss resets
+        cached FC state and reconnect starts from a new projector epoch.
+        """
+        failures = 0
+        while True:
+            try:
+                session.state = "CONNECTING" if failures == 0 else "RECONNECTING"
+                session.error_code = None
+                session.projector = MAVLinkProjector(session.projector.system_id)
+                uri = origin.replace("https://", "wss://", 1) + (
+                    "/ws/v1/view/" + session.vehicle_id)
+                async with connect(
+                    uri, ssl=context,
+                    additional_headers={"Authorization": "Bearer " + token},
+                    open_timeout=5, close_timeout=3, ping_interval=15,
+                    max_size=1024, max_queue=16, compression=None
+                ) as ws:
+                    session.state = "CONNECTED"
+                    failures = 0
+                    async for raw in ws:
+                        if isinstance(raw, bytes):
+                            session.projector.push(raw)
+                session.projector = MAVLinkProjector(session.projector.system_id)
+                session.state, session.error_code = "RECONNECTING", "LAN_VIEWER_CLOSED"
+                failures += 1
+            except asyncio.CancelledError:
+                raise
+            except (ssl.SSLError, ssl.CertificateError):
+                session.projector = MAVLinkProjector(session.projector.system_id)
+                session.state, session.error_code = "ERROR", "LAN_TLS_TRUST_REJECTED"
+                return
+            except Exception:
+                session.projector = MAVLinkProjector(session.projector.system_id)
+                session.state, session.error_code = "RECONNECTING", "LAN_VIEWER_UNAVAILABLE"
+                failures += 1
+            await asyncio.sleep(min(2 ** min(failures, 4), 20))
 
     async def start_broker(self, request: BrokerConnect):
         if request.vehicle_id in self.sessions:

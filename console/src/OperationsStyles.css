@@ -175,10 +175,13 @@
   margin-top:5px}
 .connection-methods {display:grid;gap:6px}
 .connection-methods.cloud {grid-template-columns:repeat(2,minmax(0,1fr))}
-.connection-methods.local {grid-template-columns:repeat(3,minmax(0,1fr))}
+.connection-methods.local {grid-template-columns:repeat(4,minmax(0,1fr))}
 .connection-methods button {display:flex;align-items:center;justify-content:center;gap:6px;
   border:1px solid #b6c2c9;border-radius:6px;background:#fff;color:#34434d;
   padding:11px 7px;font-size:12px;font-weight:750;min-width:0}
+.connection-lan-note {background:#e4eff3;color:#35566a;border:1px solid #acc3d1;
+  padding:9px 11px;border-radius:5px;font-size:11px;line-height:1.5;margin:0}
+.connection-methods.local button {min-height:40px;white-space:normal;line-height:1.2}
 .connection-methods button:hover {border-color:#607988;background:#e5ecf0}
 .connection-methods button.active {background:#1e2831;color:#fff;border-color:#1e2831}
 .receiver-dialog .connection-form {padding:15px 22px 10px;gap:11px}
