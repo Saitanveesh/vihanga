@@ -62,13 +62,13 @@ changes.
    sufficient if the ground station explicitly trusts that exact certificate:
 
    ```bash
-   sudo install -d -m 0700 /etc/vihanga/tls
+   sudo install -d -m 0700 -o vihanga -g vihanga /etc/vihanga/tls
    sudo openssl req -x509 -newkey rsa:3072 -nodes -days 180 \
      -keyout /etc/vihanga/tls/lan.key \
      -out /etc/vihanga/tls/lan.crt \
      -subj '/CN=192.168.1.50' \
      -addext 'subjectAltName=IP:192.168.1.50'
-   sudo chmod 0600 /etc/vihanga/tls/lan.key
+   sudo chown vihanga:vihanga /etc/vihanga/tls/lan.key /etc/vihanga/tls/lan.crt\n   sudo chmod 0600 /etc/vihanga/tls/lan.key
    ```
 
    Ensure the `vihanga` service account can read the certificate/key. Never
