@@ -1,0 +1,253 @@
+/* VIHANGA v0.17 — operational color and receiver management.
+ * The shared styles.css owns the flight map, survey and camera workspaces.
+ * This sheet owns the new link/sensor instrumentation and high-contrast
+ * connection dialog, and gives existing status indicators a stronger hierarchy.
+ * Colors convey source evidence; unknown values never look healthy. */
+:root {
+  --c-bg: #121920;
+  --c-rail: #161e26;
+  --c-side: #232c35;
+  --c-panel: #232f39;
+  --c-text: #eef3f6;
+  --c-border: #53616d;
+  --c-route: #efb454;
+  --c-live: #4cbd99;
+  --ops-red: #ec796d;
+  --ops-yellow: #edb756;
+  --ops-cyan: #62b8dc;
+  --ops-green: #65cda9;
+}
+.rail {background:#161e26}
+.rail-item.selected {background:#374b5b;color:#fff;box-shadow:inset 0 0 0 1px #5b7b8d}
+.rail-item.selected::before {background:#7bb9d7;width:4px}
+.fleetbar {background:#232d36;border-color:#51616b}
+.fleetbar-head strong {color:#eef5f8;background:#3d4d59}
+.aircraft-item {background:#2b3741;border-color:#455561}
+.aircraft-item.current {background:#3a4b58;border-color:#7aa5bc;box-shadow:inset 4px 0 0 #78bde0}
+.aircraft-info strong {color:#f8fafb}
+.aircraft-info small.working {color:#65d5ae}
+.aircraft-dot.online,.link-chip.ok .chip-dot {background:#5be1b1;box-shadow:0 0 0 3px #36725c55}
+.toolbar {background:#1c2933;border-bottom-color:#506571}
+.link-chip.ok {background:#184f41;color:#a0f4d5;border-color:#3d9b7b}
+.link-chip:not(.ok) {background:#4a302d;color:#f0ae98;border-color:#865548}
+.toolbar-button.accent {background:#2c7192;border:1px solid #519bb9;color:#f6fbfd}
+.toolbar-button.accent:hover:not(:disabled) {background:#3587ac}
+.toolbar .diagnostics-toggle {display:flex;gap:7px;align-items:center}
+.toolbar .diagnostics-toggle[aria-expanded="true"] {
+  background:#275265;border-color:#66a9c6;color:#f0f8fb
+}
+.toolbar-leading strong {color:#f4f8fa}
+.rail-icon {color:#b3cbd9}
+.rail-item.selected .rail-icon {color:#c0e7f9}
+.rail-item:hover .rail-icon {color:#e6f4fa}
+.map-tools button.chosen {background:#3f7594;color:#fff}
+.operation-ribbon button.active {background:#8d5f2e;color:#fff3d9!important;border-color:#b48a50}
+.plan-panel .major {background:#91602e;color:#fff1d6;border-color:#bf9459}
+.plan-panel .major:hover:not(:disabled) {background:#a3733b}
+.plan-panel .route-row.picked {background:#4f4937;box-shadow:inset 3px 0 0 var(--c-route)}
+.vihanga-waypoint {background:var(--c-route)}
+.vihanga-waypoint.selected {background:#ffe4a5;box-shadow:0 0 0 5px #e1a34d88,0 5px 15px #0008}
+.instrument-dock {background:#1e2832;border-top-color:#607786}
+.instrument-dock .dock-readouts strong {color:#f6f9fa}
+.instrument-dock .dock-readouts small {color:#c3d1da}
+.instrument-dock .readout-good {color:#76e0b5!important}
+.instrument-dock .readout-bad {color:#eca08c!important}
+
+/* Compact, evidence-backed status telemetry over the right side of the map. */
+.ops-signal-strip {
+  position:absolute;z-index:4;right:16px;top:67px;
+  display:flex;align-items:center;gap:6px;max-width:calc(100% - 32px)
+}
+.ops-signal-item {
+  display:flex;align-items:center;gap:6px;
+  padding:8px 10px;border-radius:5px;background:#202c35f7;
+  border:1px solid #59717e;box-shadow:0 3px 12px #0006;
+  font-size:10px;font-weight:650;color:#c2d1d9
+}
+.ops-signal-item svg {color:#a8bac5}
+.ops-signal-item strong {font-size:11px;color:#f1f6f8;white-space:nowrap}
+.ops-signal-item.healthy {border-color:#3e9277;background:#193e36f6}
+.ops-signal-item.healthy svg,.ops-signal-item.healthy strong {color:#8ceac6}
+.ops-signal-item.caution {border-color:#9b7439;background:#3e3328f6}
+.ops-signal-item.caution svg,.ops-signal-item.caution strong {color:#f3c67b}
+.ops-signal-item.fault {border-color:#92534b;background:#422e2bf6}
+.ops-signal-item.fault svg,.ops-signal-item.fault strong {color:#efa092}
+.ops-summary-button {
+  padding:9px 11px;background:#2c5065;border:1px solid #79abc5;border-radius:5px;
+  color:#eef8fb;font-size:11px;font-weight:750;white-space:nowrap
+}
+.ops-summary-button:hover {background:#376980}
+.ops-signal-strip.drawer-open {right:332px}
+
+/* Map overlay sensor drawer. Never requires a separate flight mode. */
+.ops-drawer {
+  position:absolute;top:0;right:0;bottom:0;z-index:6;
+  width:min(316px,95%);display:flex;flex-direction:column;
+  overflow-y:auto;overscroll-behavior:contain;
+  color:#eff5f7;background:#202b34f9;
+  border-left:1px solid #637480;
+  box-shadow:-14px 0 30px #0009;
+  scrollbar-width:thin;scrollbar-color:#687e8b #202b34
+}
+.ops-drawer-head {
+  position:sticky;top:0;z-index:2;
+  display:flex;align-items:start;justify-content:space-between;
+  padding:19px 17px 15px;background:#273844;border-bottom:1px solid #586b78
+}
+.ops-drawer-head>div {display:flex;flex-direction:column;gap:4px}
+.ops-eyebrow {font-size:9px;font-weight:800;letter-spacing:1.3px;color:#8bc0d9}
+.ops-drawer-head h2 {font:700 18px "Segoe UI",sans-serif;margin:2px 0;color:#f4f8fa}
+.ops-drawer-head small {font-size:11px;color:#adc2cd}
+.ops-drawer-head button {font-size:23px;color:#d4e4eb;border:1px solid #617988;
+  background:#334956;width:30px;height:30px;line-height:1;display:grid;place-items:center;border-radius:5px}
+.ops-drawer-section {padding:15px 16px;border-bottom:1px solid #445561}
+.ops-drawer-heading {display:flex;gap:9px;align-items:center;margin-bottom:12px;color:#83c8e3}
+.ops-drawer-heading h3 {margin:0;font:700 13px "Segoe UI",sans-serif;color:#eaf1f5}
+.ops-source {padding:11px 12px;background:#263741;border:1px solid #526572;border-radius:6px;margin:7px 0}
+.ops-source.selected {border-color:#6aadc6;box-shadow:inset 3px 0 0 #75c7ea;background:#2d4350}
+.ops-source-line {display:flex;align-items:center;justify-content:space-between;gap:6px}
+.ops-source-line>strong {font-size:11px;color:#f2f7f9;letter-spacing:.35px}
+.ops-source-line b {font-size:8px;color:#8ed3ed;margin-left:2px}
+.ops-source small {display:block;margin-top:6px;font-size:10px;color:#afc4ce;overflow-wrap:anywhere}
+.ops-error-code {color:#ffae96!important}
+.ops-state {font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.15px}
+.ops-state.healthy {color:#7be2b5}
+.ops-state.caution {color:#f3bc68}
+.ops-state.fault {color:#f19a8e}
+.ops-state.unknown {color:#a9bac4}
+.ops-switch-actions {display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:12px}
+.ops-switch-actions button,.ops-secondary-action {
+  background:#385266;border:1px solid #7196ab;color:#f0f7fa;
+  border-radius:5px;padding:10px 6px;font-size:11px;font-weight:700
+}
+.ops-switch-actions button:hover:not(:disabled),.ops-secondary-action:hover:not(:disabled) {background:#466b83}
+.ops-switch-actions button:disabled,.ops-secondary-action:disabled {opacity:.42;cursor:not-allowed}
+.ops-secondary-action {display:block;width:100%;margin-top:8px}
+.ops-text-action {background:transparent;color:#e0bbaa;font-size:11px;border:0;padding:10px 2px 0}
+.ops-text-action:hover {color:#ffcebc}
+.ops-note {font-size:10px;color:#a8bac4;line-height:1.55;margin:10px 0 0}
+.ops-two-metrics {display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ops-two-metrics>div {display:flex;flex-direction:column;gap:5px;background:#2a3a45;
+  padding:10px 9px;border:1px solid #4d6270;border-radius:5px;min-height:73px}
+.ops-two-metrics small {font-size:10px;color:#afc4ce}
+.ops-two-metrics strong {font-size:20px;color:#f2f6f8;font-family:Bahnschrift,"Segoe UI",sans-serif}
+.ops-two-metrics span {font-size:9px;color:#94aebb}
+.ops-metric-row,.ops-sensor {display:flex;justify-content:space-between;align-items:center;
+  padding:9px 0;gap:10px;border-bottom:1px solid #3a4b58}
+.ops-metric-row:last-of-type,.ops-sensor:last-child {border-bottom:0}
+.ops-metric-row span,.ops-sensor span {font-size:11px;color:#b8c8d1}
+.ops-metric-row strong {font-size:11px;color:#f3f8fa;font-variant-numeric:tabular-nums}
+.ops-metric-row .ops-data-good {color:#7be2b5}
+.ops-drawer-foot {padding:14px 17px;color:#9bb2bf;font-size:10px;text-align:center}
+.ops-sensor-list {display:flex;flex-direction:column}
+
+/* High-contrast, light receiver configuration modal: operator must be able
+ * to distinguish connection method, role and recovery path at a glance. */
+.receiver-dialog {
+  width:min(570px,100%);max-height:min(91dvh,900px);overflow-y:auto;
+  background:#f1f3f4;color:#1c2730;border:1px solid #b5c3cb;
+  border-radius:13px;box-shadow:0 22px 75px #000c;scrollbar-width:thin
+}
+.receiver-dialog .dialog-head {
+  background:#f8f9f9;padding:21px 24px 17px;border-bottom:1px solid #d4dade;
+  align-items:start;color:#212c34
+}
+.receiver-dialog .dialog-head h2 {font-size:24px;color:#1b2730;font-weight:750;margin:4px 0 0}
+.receiver-dialog .dialog-head p {font-size:12px;color:#5f707b;margin:5px 0 0}
+.receiver-dialog .dialog-head button {color:#394b56;font-weight:700;padding:0 6px;border-radius:5px}
+.receiver-dialog .dialog-head button:hover {background:#dde3e6}
+.modal-eyebrow {font-size:9px;letter-spacing:1.35px;font-weight:800;color:#6b8795}
+.receiver-overview {display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:15px 22px 5px}
+.receiver-summary {background:#e7ecef;border:1px solid #cbd4da;border-radius:7px;
+  display:flex;flex-direction:column;gap:5px;min-width:0;padding:11px 12px}
+.receiver-summary>span {font-size:9px;letter-spacing:.5px;color:#576d7c;font-weight:800}
+.receiver-summary>span b {font-size:8px;color:#236f8c;margin-left:7px}
+.receiver-summary strong {font-size:12px;color:#8e5753;overflow-wrap:anywhere}
+.receiver-summary strong.receiver-live {color:#187953}
+.receiver-summary small {font-size:10px;color:#526773;overflow-wrap:anywhere}
+.connection-role-tabs {display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:13px 22px 2px;
+  padding:3px;border:1px solid #c4ccd2;border-radius:8px;background:#e2e7e9}
+.connection-role-tabs button {background:transparent;color:#61737d;font-size:12px;font-weight:750;
+  padding:10px 9px;border:1px solid transparent;border-radius:6px}
+.connection-role-tabs button.active {color:#fff;background:#25333f;border-color:#25333f}
+.connection-protocols {padding:11px 22px 0;display:flex;flex-direction:column;gap:7px}
+.connection-protocols>span {color:#667782;font-weight:800;letter-spacing:1px;font-size:9px;
+  margin-top:5px}
+.connection-methods {display:grid;gap:6px}
+.connection-methods.cloud {grid-template-columns:repeat(2,minmax(0,1fr))}
+.connection-methods.local {grid-template-columns:repeat(3,minmax(0,1fr))}
+.connection-methods button {display:flex;align-items:center;justify-content:center;gap:6px;
+  border:1px solid #b6c2c9;border-radius:6px;background:#fff;color:#34434d;
+  padding:11px 7px;font-size:12px;font-weight:750;min-width:0}
+.connection-methods button:hover {border-color:#607988;background:#e5ecf0}
+.connection-methods button.active {background:#1e2831;color:#fff;border-color:#1e2831}
+.receiver-dialog .connection-form {padding:15px 22px 10px;gap:11px}
+.receiver-dialog .connection-form label {font-size:11px;color:#354b59;font-weight:750;gap:6px}
+.receiver-dialog .connection-form input,.receiver-dialog .connection-form select {
+  min-height:41px;background:#fff;border:1px solid #b1bdc5;border-radius:6px;
+  padding:10px 12px;font-size:13px;font-weight:500;color:#1f2b33;
+}
+.receiver-dialog .connection-form input:focus-visible,
+.receiver-dialog .connection-form select:focus-visible {outline:2px solid #4b91b0;outline-offset:1px}
+.receiver-dialog .connection-form input[readonly] {color:#687781;background:#e6ebee}
+.connection-address {display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.connection-help {background:#e4eaed;border:1px solid #cfd7dc;padding:10px 12px;
+  border-radius:6px;color:#51616b;font-size:11px;line-height:1.5;margin:0}
+.connection-form-actions {display:flex;justify-content:flex-end;gap:10px;margin-top:3px}
+.connection-form-actions .major {width:auto;min-width:190px;margin:0;border-radius:6px;
+  padding:11px 15px;background:#1c2c36;border-color:#1c2c36;color:white}
+.connection-form-actions .major:hover:not(:disabled) {background:#334958}
+.connection-cancel {border:1px solid #b7c1c7;background:#fff;color:#415360;
+  padding:10px 20px;border-radius:6px;font-size:12px;font-weight:700}
+.connection-management {margin:0 22px;padding:12px 0 9px;border-top:1px solid #ccd4d9}
+.connection-management>span {color:#6d808b;font-size:9px;font-weight:800;letter-spacing:1px}
+.connection-management>div {display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.connection-management button {font-size:10px;font-weight:700;padding:9px 10px;border-radius:5px;
+  border:1px solid #a8bdc7;color:#284c5d;background:#edf4f7}
+.connection-management button:disabled {opacity:.45}
+.connection-management button.disconnect-all {background:#fbece9;border-color:#dfb5ad;color:#9e4136}
+.connection-safety {display:flex;align-items:center;gap:8px;padding:12px 22px 15px;margin:0;
+  border-top:1px solid #d0d8dc;font-size:10px;color:#637883;background:#e9eff1}
+
+/* Narrow laptop and touch screens: no invisible buttons or clipped settings. */
+@media(max-width:1300px) {
+  .toolbar .diagnostics-toggle {font-size:0;gap:0;padding:9px}
+  .toolbar .diagnostics-toggle svg {width:17px;height:17px}
+  .ops-signal-strip.drawer-open {display:none}
+}
+@media(max-width:1000px) {
+  .ops-signal-strip {right:12px;top:63px}
+  .ops-signal-item {padding:7px 8px;font-size:9px}
+  .ops-drawer {width:min(300px,100%)}
+}
+@media(max-width:760px) {
+  .ops-signal-strip {gap:3px}
+  .ops-signal-item span {display:none}
+  .ops-signal-item {padding:6px 7px}
+  .ops-summary-button {font-size:10px;padding:7px}
+  .ops-signal-strip.drawer-open {display:none}
+  .receiver-dialog {width:min(540px,100%);max-height:92dvh}
+}
+@media(max-width:600px) {
+  .toolbar .diagnostics-toggle {padding:6px}
+  .ops-signal-strip {right:7px;top:55px}
+  .ops-signal-item {padding:6px;font-size:8px}
+  .ops-signal-item strong {font-size:9px}
+  .ops-summary-button {padding:7px 8px}
+  .ops-drawer {width:min(330px,100%);top:0;right:0;bottom:0}
+  .receiver-overview {padding:12px 13px 3px;gap:8px}
+  .receiver-dialog .dialog-head {padding:16px 14px}
+  .receiver-dialog .dialog-head h2 {font-size:21px}
+  .connection-role-tabs {margin:11px 13px 1px}
+  .connection-protocols {padding:10px 13px 0}
+  .connection-methods button {font-size:10px;gap:3px;padding:10px 4px}
+  .connection-methods button svg {width:13px}
+  .receiver-dialog .connection-form {padding:11px 13px;gap:8px}
+  .connection-management {margin:0 13px}
+  .connection-safety {padding:11px 13px}
+  .connection-form-actions .major {min-width:0;flex:1;font-size:11px;padding:10px}
+  .connection-cancel {padding:9px 11px}
+}
+@media(prefers-reduced-motion:reduce){
+  .ops-drawer *,.receiver-dialog *{transition:none!important}
+}
