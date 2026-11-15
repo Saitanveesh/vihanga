@@ -199,7 +199,8 @@ class MAVLinkProjector:
                     ("radio_fixed_packets", int(msg.fixed)),
                     ("radio_txbuf_raw", int(msg.txbuf)),
                 ):
-                    if raw_value >= 0:
+                    if raw_value >= 0 and (name not in (
+                        "radio_rssi_raw", "radio_remote_rssi_raw") or raw_value < 255):
                         self._set(name, raw_value, now)
             elif typ == "SYS_STATUS":
                 # MAV_SYS_STATUS_SENSOR flags: 3D_GYRO=0, 3D_ACCEL=1,
@@ -336,6 +337,7 @@ class LinkManager:
         self.sessions: dict[str, Session] = {}
         self.standby_managers: dict[str, LinkManager] = {}
         self.selected_sources: dict[str, str] = {}
+        self._standby_lock = asyncio.Lock()
 
     def active_session(self, vehicle_id: str) -> Session | None:
         if self.selected_sources.get(vehicle_id) == "BACKUP":
@@ -372,33 +374,36 @@ class LinkManager:
         }
 
     async def start_backup(self, request):
-        vehicle_id = request.vehicle_id
-        primary = self.sessions.get(vehicle_id)
-        if primary is None:
-            raise ValueError("Connect primary telemetry before configuring backup")
-        if vehicle_id in self.standby_managers:
-            raise ValueError("Remove the existing backup receiver first")
-        kinds = {
-            BrokerConnect: ("VIHANGA_CLOUD_V2", "start_broker"),
-            CloudConnect: ("PRIVATE_CLOUD_WSS", "start_cloud"),
-            SerialConnect: ("LOCAL_SERIAL_RECEIVE", "start_serial"),
-            TCPConnect: ("LOCAL_TCP_RECEIVE", "start_tcp"),
-            UDPConnect: ("LOCAL_UDP_SITL", "start_udp"),
-        }
-        key = type(request)
-        if key not in kinds:
-            raise ValueError("Unsupported backup transport")
-        backup_kind, method = kinds[key]
-        if primary.kind == backup_kind:
-            raise ValueError("Backup must use a different transport type")
-        if primary.projector.system_id != request.fc_system_id:
-            raise ValueError("Backup FC system ID must match primary aircraft")
-        # The subsidiary manager owns its independent read-only task/socket.
-        # No alias to primary's parser or serial file handle is created.
-        standby = LinkManager()
-        await getattr(standby, method)(request)
-        self.standby_managers[vehicle_id] = standby
-        return self.snapshot(vehicle_id)
+        # One concurrent provisioning transaction per manager. Prevents two
+        # simultaneous HTTP requests creating orphaned serial/TCP readers.
+        async with self._standby_lock:
+            vehicle_id = request.vehicle_id
+            primary = self.sessions.get(vehicle_id)
+            if primary is None:
+                raise ValueError("Connect primary telemetry before configuring backup")
+            if vehicle_id in self.standby_managers:
+                raise ValueError("Remove the existing backup receiver first")
+            kinds = {
+                BrokerConnect: ("VIHANGA_CLOUD_V2", "start_broker"),
+                CloudConnect: ("PRIVATE_CLOUD_WSS", "start_cloud"),
+                SerialConnect: ("LOCAL_SERIAL_RECEIVE", "start_serial"),
+                TCPConnect: ("LOCAL_TCP_RECEIVE", "start_tcp"),
+                UDPConnect: ("LOCAL_UDP_SITL", "start_udp"),
+            }
+            key = type(request)
+            if key not in kinds:
+                raise ValueError("Unsupported backup transport")
+            backup_kind, method = kinds[key]
+            if primary.kind == backup_kind:
+                raise ValueError("Backup must use a different transport type")
+            if primary.projector.system_id != request.fc_system_id:
+                raise ValueError("Backup FC system ID must match primary aircraft")
+            # The subsidiary manager owns its independent read-only task/socket.
+            # No alias to primary's parser or serial file handle is created.
+            standby = LinkManager()
+            await getattr(standby, method)(request)
+            self.standby_managers[vehicle_id] = standby
+            return self.snapshot(vehicle_id)
 
     def select_source(self, vehicle_id: str, source: str):
         if source not in ("PRIMARY", "BACKUP"):
