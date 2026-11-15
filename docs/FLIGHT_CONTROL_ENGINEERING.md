@@ -39,7 +39,15 @@ command succeeded. A rendered button is not evidence of an available transport.
    response or an unavailable value; do not interpret a write as an FC ACK.
 6. In CONTROL → Parameters request `GPS_TYPE` or the parameter list. Inspect
    actual `PARAM_VALUE` responses via Refresh view. No parameter changes occur.
-7. To disable bench requests, close the GCS, remove that environment variable
+7. Alternatively, after all the checks above, run a non-actuating read
+   preflight from a second PowerShell terminal (only after propellers are
+   physically removed):
+
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\Test-Vihanga-BenchRead.ps1 -Query FC_VERSION -AircraftId AH-HW-001 -PropellersRemoved
+   ```
+
+8. To disable bench requests, close the GCS, remove that environment variable
    and restart. Default configuration never enables them.
 
 ## Engineering limits
