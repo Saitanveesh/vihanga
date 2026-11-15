@@ -15,7 +15,7 @@ import httpx
 import serial
 from pymavlink import mavutil
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from websockets.asyncio.client import connect
 
 
@@ -49,7 +49,7 @@ class SerialConnect(StrictModel):
     baud: int = Field(default=57600)
     fc_system_id: int = Field(ge=1, le=254)
 
-    @__import__("pydantic").field_validator("baud")
+    @field_validator("baud")
     @classmethod
     def check_baud(cls, baud: int):
         if baud not in (9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600):
