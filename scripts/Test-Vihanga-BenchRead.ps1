@@ -23,7 +23,22 @@ if ($Query -eq "PARAMETER_READ" -and $ParameterName -notmatch '^[A-Za-z][A-Za-z0
 
 $api = "http://127.0.0.1:8010"
 $id = [uri]::EscapeDataString($AircraftId)
-$catalog = Invoke-RestMethod -Uri "$api/api/v1/operator/$id/catalog" -TimeoutSec 6
+try {
+  $health = Invoke-RestMethod -Uri "$api/api/v1/health" -TimeoutSec 4 -ErrorAction Stop
+} catch {
+  throw "Vihanga backend is not reachable on 127.0.0.1:8010. From the repository folder, run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-Vihanga-Standalone.ps1 -BenchRead -PropellersRemoved. Then rerun this test."
+}
+if ($health.service -ne "vihanga-standalone" -or $health.status -ne "ok") {
+  throw "Port 8010 does not expose the expected Vihanga operations API."
+}
+try {
+  $catalog = Invoke-RestMethod -Uri "$api/api/v1/operator/$id/catalog" -TimeoutSec 6 -ErrorAction Stop
+} catch {
+  if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) {
+    throw "Aircraft '$AircraftId' is not registered in this local GCS. Register/select the same aircraft ID in FLEET."
+  }
+  throw
+}
 if ($catalog.physical_flight_control_enabled -ne $false -or
     $catalog.cloud_command_dispatch_enabled -ne $false) {
   throw "Unexpected command authority state. Stop and investigate."
