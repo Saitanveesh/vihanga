@@ -97,7 +97,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             revision_sha256 TEXT NOT NULL, created_at TEXT NOT NULL
         )""")
 
-    app = FastAPI(title="Vihanga standalone operations API", version="0.18.0")
+    app = FastAPI(title="Vihanga standalone operations API", version="0.19.0")
     # Loopback-only development API. Reject DNS rebinding via arbitrary Host values.
     app.add_middleware(TrustedHostMiddleware,
                        allowed_hosts=["127.0.0.1", "localhost", "testserver"])
