@@ -5,8 +5,8 @@ import OperationsPanel from "./OperationsPanel";
 import ControlPanel from "./ControlPanel";
 import UiIcon, { type IconName } from "./UiIcon";
 import {
-  connectBroker, connectCloud, connectUDP, connectTCP, connectSerial, disconnectLink,
-  connectBackupBroker, connectBackupCloud, connectBackupSerial, connectBackupUDP, connectBackupTCP,
+  connectBroker, connectCloud, connectLAN, connectUDP, connectTCP, connectSerial, disconnectLink,
+  connectBackupBroker, connectBackupCloud, connectBackupLAN, connectBackupSerial, connectBackupUDP, connectBackupTCP,
   activateTelemetrySource, disconnectBackup, getHealth, getMissions,
   getOperatorCatalog, getParameterReadback, sendBenchRead,
   getFleetTelemetry, getObservedTrack, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
@@ -96,7 +96,7 @@ export default function App() {
   const [operatorCatalog, setOperatorCatalog] = useState<OperatorCatalog | null>(null);
   const [parameterReadback, setParameterReadback] = useState<ParameterReadback | null>(null);
   const [connectionRole, setConnectionRole] = useState<"PRIMARY" | "BACKUP">("PRIMARY");
-  const [linkType, setLinkType] = useState<"BROKER" | "CLOUD" | "UDP" | "TCP" | "SERIAL">("CLOUD");
+  const [linkType, setLinkType] = useState<"BROKER" | "CLOUD" | "LAN" | "UDP" | "TCP" | "SERIAL">("CLOUD");
   const [origin, setOrigin] = useState(() => {
     try { return window.localStorage.getItem("vihanga.receiver.origin.cloud.v1") || ""; }
     catch { return ""; }
@@ -361,15 +361,15 @@ export default function App() {
   function openConnection(role?: "PRIMARY" | "BACKUP") {
     const requested = role ?? (sample?.primary_transport ? "BACKUP" : "PRIMARY");
     setConnectionRole(requested);
-    const nextKind = requested === "BACKUP" ? "SERIAL" : "CLOUD";
+    const nextKind = requested === "BACKUP" ? "LAN" : "CLOUD";
     setLinkType(nextKind);
     try { setOrigin(window.localStorage.getItem("vihanga.receiver.origin." + nextKind.toLowerCase() + ".v1") || ""); }
     catch { setOrigin(""); }
     setConnectOpen(true);
   }
-  function chooseLinkType(kind: "BROKER" | "CLOUD" | "UDP" | "TCP" | "SERIAL") {
+  function chooseLinkType(kind: "BROKER" | "CLOUD" | "LAN" | "UDP" | "TCP" | "SERIAL") {
     setLinkType(kind);
-    if (kind === "CLOUD" || kind === "BROKER") {
+    if (kind === "CLOUD" || kind === "BROKER" || kind === "LAN") {
       try { setOrigin(window.localStorage.getItem("vihanga.receiver.origin." + kind.toLowerCase() + ".v1") || ""); }
       catch { setOrigin(""); }
     }
@@ -383,6 +383,8 @@ export default function App() {
       let result: Telemetry;
       if (linkType === "BROKER") result = await (isBackup ? connectBackupBroker : connectBroker)(
         {vehicle_id:selected,origin,viewer_token:viewerToken,fc_system_id:sysid});
+      else if (linkType === "LAN") result = await (isBackup ? connectBackupLAN : connectLAN)(
+        {vehicle_id:selected,origin,viewer_token:viewerToken,fc_system_id:sysid});
       else if (linkType === "CLOUD") result = await (isBackup ? connectBackupCloud : connectCloud)(
         {vehicle_id:selected,origin,username,password,fc_system_id:sysid});
       else if (linkType === "SERIAL") result = await (isBackup ? connectBackupSerial : connectSerial)(
@@ -391,7 +393,7 @@ export default function App() {
         {vehicle_id:selected,port,fc_system_id:sysid});
       else result = await (isBackup ? connectBackupUDP : connectUDP)(
         {vehicle_id:selected,port,fc_system_id:sysid});
-      if (linkType === "CLOUD" || linkType === "BROKER") {
+      if (linkType === "CLOUD" || linkType === "BROKER" || linkType === "LAN") {
         try {
           window.localStorage.setItem("vihanga.receiver.origin." + linkType.toLowerCase() + ".v1", origin);
           if (linkType === "CLOUD")
@@ -868,6 +870,9 @@ export default function App() {
             </div>
             <span>LOCAL / RECOVERY</span>
             <div className="connection-methods local" role="group" aria-label="Local connection type">
+              <button type="button" aria-pressed={linkType === "LAN"}
+                className={linkType === "LAN" ? "active" : ""}
+                onClick={() => chooseLinkType("LAN")}><UiIcon name="radio" size={15}/> Direct Wi-Fi</button>
               <button type="button" aria-pressed={linkType === "SERIAL"}
                 className={linkType === "SERIAL" ? "active" : ""}
                 onClick={() => chooseLinkType("SERIAL")}><UiIcon name="link" size={15}/> Serial / USB</button>
@@ -893,6 +898,15 @@ export default function App() {
                 onChange={e => setUsername(e.target.value)}/></label>
               <label>Operator password<input required type="password" autoComplete="off"
                 value={password} onChange={e => setPassword(e.target.value)}/></label>
+            </> : linkType === "LAN" ? <>
+              <label>Raspberry Pi LAN origin<input type="url" required
+                placeholder="https://192.168.1.50:8765"
+                value={origin} onChange={e => setOrigin(e.target.value)}/></label>
+              <label>LAN viewer token<input type="password" required autoComplete="off"
+                value={viewerToken} onChange={e => setViewerToken(e.target.value)}/></label>
+              <p className="connection-lan-note">Direct private Wi-Fi, independent of Oracle.
+                The GCS backend must trust the Pi certificate through
+                VIHANGA_LAN_CA_CERT. Read-only telemetry; commands are not routed.</p>
             </> : linkType === "SERIAL" ? <>
               <label>Serial interface<input required placeholder="COM3"
                 value={serialPort} onChange={e => setSerialPort(e.target.value)}/></label>
@@ -912,7 +926,7 @@ export default function App() {
             <p className="connection-help">
               {connectionRole === "BACKUP" ? "Backup receives independent data and must use a different transport class with the same FC system ID. It is never selected automatically." :
                 "Primary is the default telemetry source. It does not issue commands to the aircraft."}
-              {" "}Cloud credentials are not saved; previously used origins may be remembered locally.
+              {" "}Passwords and viewer tokens are never saved; only connection origins may be remembered locally.
             </p>
             <div className="connection-form-actions">
               <button type="button" className="connection-cancel"
