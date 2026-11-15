@@ -51,6 +51,17 @@ jobs:
           docker compose -f cloud/compose.staging.yml config --quiet
       - name: Build reproducible staging relay container
         run: docker build -f cloud/Dockerfile cloud --tag vihanga-cloud:ci
+      - name: Exercise the broker inside the staging image
+        shell: bash
+        run: |
+          set -euo pipefail
+          export VIHANGA_CI_TOKEN
+          VIHANGA_CI_TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          export VIHANGA_CLOUD_AIRCRAFT_JSON
+          VIHANGA_CLOUD_AIRCRAFT_JSON="$(python3 -c 'import hashlib,json,os; h=lambda s: hashlib.sha256(s.encode()).hexdigest(); t=os.environ["VIHANGA_CI_TOKEN"]; print(json.dumps([dict(vehicle_id="CI-001", system_id=1, organization="ci", device_token_sha256=h(t), viewer_token_sha256=h(h(t)))]))')"
+          container="$(docker run -d --read-only --cap-drop ALL --security-opt no-new-privileges -e VIHANGA_CLOUD_AIRCRAFT_JSON vihanga-cloud:ci)"
+          trap 'docker logs "$container"; docker rm -f "$container" >/dev/null' EXIT
+          docker exec -i -e VIHANGA_CI_TOKEN "$container" python - < cloud/checks/container_smoke.py
       - name: Check container never publishes public host ports in Compose
         shell: bash
         run: |
