@@ -86,7 +86,7 @@ export default function GeoMap({
       container: mount.current,
       style: (basemap === "satellite" ? imagery : street) as any,
       center: [77.5946, 12.9716], zoom: 12.4,
-      attributionControl: true
+      attributionControl: { compact: true }
     });
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
