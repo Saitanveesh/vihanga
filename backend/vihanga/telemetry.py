@@ -135,12 +135,17 @@ class MAVLinkProjector:
             return 0
         accepted = 0
         for msg in messages:
-            if (msg.get_type() == "BAD_DATA" or msg.get_srcSystem() != self.system_id
-                    or msg.get_srcComponent() != 1):
+            typ = msg.get_type()
+            comp = msg.get_srcComponent()
+            # FC state must come only from AUTOPILOT1 (component 1).
+            # RADIO_STATUS may legitimately originate from MAV_COMP_ID_
+            # TELEMETRY_RADIO (68) using the same aircraft system ID.
+            radio_component = typ == "RADIO_STATUS" and comp == 68
+            if (typ == "BAD_DATA" or msg.get_srcSystem() != self.system_id
+                    or (comp != 1 and not radio_component)):
                 self.invalid_frames += 1
                 continue
             now = time.monotonic()
-            typ = msg.get_type()
             self.count[typ] += 1
             self.last_frame_at = now
             self.recent_frames.append(now)
