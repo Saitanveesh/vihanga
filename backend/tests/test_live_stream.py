@@ -55,7 +55,7 @@ def test_gps_track_only_from_real_fix_and_packets(tmp_path):
     app.state.links.sessions["AIR-001"] = Session(
         "AIR-001", "TEST_MAVLINK", projector, state="CONNECTED")
     position = mavlink.MAVLink_global_position_int_message(
-        1234, 129710000, 775900000, 40000, 10000, 0, 0, 0, 0
+        1234, 129710000, 775900000, 40000, 10000, 0, 0, 0, 0)
     assert projector.push(frame(position)) == 1
     assert c.get("/api/v1/flight-tracks/AIR-001").json()["count"] == 0
     gps = mavlink.MAVLink_gps_raw_int_message(
