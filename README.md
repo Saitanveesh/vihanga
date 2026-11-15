@@ -3,15 +3,16 @@
 
 Vihanga is an independent React/TypeScript operator console with Python geospatial planning, local MAVLink telemetry ingestion, a vehicle-isolated cloud telemetry broker and a Raspberry Pi edge receiver. It does **not** import, embed or depend on Mission Planner. Older Mission Planner-based work is retained separately for reference.
 
-**Engineering baseline: v0.11, 15 November 2026.** The test suite exercises real MAVLink2 packet serialization and decoding, but there has been no demonstrated physical command downlink through this new stack. **Do not use this repository to conduct an aircraft flight.**
+**Engineering baseline: v0.14, 15 November 2026.** The test suite exercises real MAVLink2 packet serialization and decoding, but there has been no demonstrated physical command downlink through this new stack. **Do not use this repository to conduct an aircraft flight.**
 
 ## Capability and verification matrix
 
 | System | Implemented in this repository | Verified boundary |
 | --- | --- | --- |
-| Operator console | MapLibre map, fleet selection, planning, survey geometry, telemetry instruments, live status, observed flight trails, video link | React TypeScript production bundle, API protocol tests; operator visual acceptance still pending |
+| Operator console | MapLibre map, fleet selection, planning, survey geometry, telemetry instruments, live status, observed flight trails, video link | React TypeScript build and component regressions; on-screen operator acceptance still pending |
 | Planning | Aircraft-specific draft missions, survey lanes, stored revisions, route measurement | API/geometry unit tests; no terrain, obstacles or airspace clearance |
 | Local FC telemetry | Receive-only USB serial, TCP loopback and UDP SITL; parser checks FC SYSID | Synthetic fixtures encoded as real MAVLink2 bytes, local socket and fake serial tests |
+| Operator diagnostic workspace | Fleet aggregate telemetry, GPS2/power/airspeed/throttle/read-rate diagnostics, optional camera preview and enlarged video workstation | API and React regressions; real-world UI QA pending |
 | Independent cloud broker | Authenticated device/viewer WSS endpoints, vehicle and role isolation, CRC checking, bounded fan-out | Automated WebSocket and integration tests; real hosted TLS deployment pending |
 | Pi edge agent | One-owner serial access, validated receive-only packets, bounded WSS reconnection, systemd sample | Automated tests; physical UART ownership, wiring and long soak pending |
 | Cloud -> local GCS | Dedicated viewer client, freshness handling, per-aircraft WebSocket telemetry and GNSS tracks | Protocol integration plus local client tests; real private network end-to-end soak pending |
@@ -80,6 +81,7 @@ python -m pip install -e ".\backend[dev]" -e ".\cloud[dev]" -e ".\edge[dev]"
 python -m pytest -q backend/tests cloud/tests edge/tests integration/tests
 cd console
 npm install --no-audit --no-fund
+npm run test
 npm run build
 ~~~
 
@@ -92,4 +94,4 @@ GitHub Actions separately checks backend, cloud, edge, the cross-service packet 
 - Verify camera streaming under traffic load, GNSS validity, survey geometry, map license and operator workflow on the target Windows machine.
 - Before any physical control path: operator identity/MFA, short-lived pilot authority, vehicle-side safety arbiter, RC/manual precedence, link-loss policy, authenticated acknowledgements, HIL, propeller-free bench and supervised range acceptance.
 
-See [Architecture](docs/ARCHITECTURE.md) and [Staging deployment](docs/STAGING_DEPLOYMENT.md). Never commit operational device tokens or operator credentials.
+See [Operator acceptance](docs/OPERATOR_ACCEPTANCE.md), [Architecture](docs/ARCHITECTURE.md) and [Staging deployment](docs/STAGING_DEPLOYMENT.md). Never commit operational device tokens or operator credentials.
