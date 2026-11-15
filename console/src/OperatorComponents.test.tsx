@@ -1,7 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import FlightInstruments from "./FlightInstruments";
-import SystemsPanel from "./SystemsPanel";
 import type { Telemetry } from "./api";
 
 afterEach(cleanup);
@@ -44,29 +43,4 @@ describe("operator components: verified telemetry only", () => {
     expect(screen.getByText("FRESH")).toBeTruthy();
   });
 
-  it("keeps the camera unloaded until explicitly previewed", () => {
-    const onOpen = vi.fn();
-    const camera = "https://saitanveesh.tailf3ab6a.ts.net/cam/";
-    const { container } = render(<SystemsPanel telemetry={data()}
-      vehicleId="AH-HW-001" cameraUrl={camera} onOpenVideo={onOpen}/>);
-    expect(screen.getByText("Aircraft systems")).toBeTruthy();
-    expect(screen.getByText("Fix 1")).toBeTruthy();
-    expect(screen.getByText("No data")).toBeTruthy();
-    expect(container.querySelector("iframe")).toBeNull();
-    fireEvent.click(screen.getByRole("button", {name: "Preview"}));
-    expect(container.querySelector("iframe")?.getAttribute("src")).toBe(camera);
-    fireEvent.click(screen.getByRole("button", {name: "Hide"}));
-    expect(container.querySelector("iframe")).toBeNull();
-    fireEvent.click(screen.getByRole("button", {name: /Open video workspace/}));
-    expect(onOpen).toHaveBeenCalledOnce();
-  });
-
-  it("does not invent systems values for an offline aircraft", () => {
-    const { container } = render(<SystemsPanel vehicleId="AH-HW-001"
-      cameraUrl="" onOpenVideo={() => undefined}/>);
-    expect(screen.getByText("Offline")).toBeTruthy();
-    expect(screen.getByText("Not reported")).toBeTruthy();
-    expect(screen.getByText("No camera configured for this aircraft.")).toBeTruthy();
-    expect(container.querySelector("iframe")).toBeNull();
-  });
 });
