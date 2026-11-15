@@ -1,89 +1,95 @@
-# VIHANGA — Independent Ground Control System
+# VIHANGA
+### Independent cloud-assisted ground control and telemetry platform
 
-Vihanga is an original, cross-platform cloud ground-control platform for ArduPilot/PX4-class aircraft. The new console is **not based on Mission Planner**. The architecture is intended for fleet operations with an interchangeable LTE/5G edge communications module.
+Vihanga is an independent React/TypeScript operator console with Python geospatial planning, local MAVLink telemetry ingestion, a vehicle-isolated cloud telemetry broker and a Raspberry Pi edge receiver. It does **not** import, embed or depend on Mission Planner. Older Mission Planner-based work is retained separately for reference.
 
-## Current executable version: 0.2 (engineering)
+**Engineering baseline: v0.11, 15 November 2026.** The test suite exercises real MAVLink2 packet serialization and decoding, but there has been no demonstrated physical command downlink through this new stack. **Do not use this repository to conduct an aircraft flight.**
 
-Unlike the initial scaffold, this release includes actual functional geospatial planning and real MAVLink telemetry reception:
+## Capability and verification matrix
 
-| Feature | Implemented | Verified |
+| System | Implemented in this repository | Verified boundary |
 | --- | --- | --- |
-| Satellite / street map | MapLibre with attributed map tiles; zoom, pan, selected-aircraft position | TypeScript build |
-| Polygon survey planner | Click map vertices; line spacing, angle and altitude; computes genuine clipped parallel survey legs | Backend geometry unit tests |
-| Manual waypoint route | Click to add geographic waypoints; save selected-aircraft route | API and console builds |
-| Mission drafts | SQLite storage, deterministic SHA-256 revision, history | Backend API tests |
-| Multiple registered aircraft | Fleet identity, selection and independent link sessions | API build; 12-aircraft load campaign pending |
-| Local UDP SITL receive | Loopback-only UDP port; MAVLink decoded from physical protocol frames | Automated UDP receiver tests |
-| Private cloud telemetry | Backend signs in to **existing** Vihanga Oracle private relay, reads authenticated WSS MAVLink viewer and projects live data | Code/tests; real cloud deployment test pending |
-| Live flight instruments | HEARTBEAT, ATTITUDE, VFR_HUD, SYS_STATUS, GPS_RAW_INT, GLOBAL_POSITION_INT | Real serialized MAVLink protocol regression tests |
-| Camera view | User-configured private HTTPS camera page, independent of FC telemetry | Frontend build; operator smoke test pending |
-| Remote ARM / takeoff / land / RTL / upload | **NOT IMPLEMENTED** | Not permitted |
-| Physical aircraft command channel | **NOT IMPLEMENTED** | Not permitted |
+| Operator console | MapLibre map, fleet selection, planning, survey geometry, telemetry instruments, live status, observed flight trails, video link | React TypeScript production bundle, API protocol tests; operator visual acceptance still pending |
+| Planning | Aircraft-specific draft missions, survey lanes, stored revisions, route measurement | API/geometry unit tests; no terrain, obstacles or airspace clearance |
+| Local FC telemetry | Receive-only USB serial, TCP loopback and UDP SITL; parser checks FC SYSID | Synthetic fixtures encoded as real MAVLink2 bytes, local socket and fake serial tests |
+| Independent cloud broker | Authenticated device/viewer WSS endpoints, vehicle and role isolation, CRC checking, bounded fan-out | Automated WebSocket and integration tests; real hosted TLS deployment pending |
+| Pi edge agent | One-owner serial access, validated receive-only packets, bounded WSS reconnection, systemd sample | Automated tests; physical UART ownership, wiring and long soak pending |
+| Cloud -> local GCS | Dedicated viewer client, freshness handling, per-aircraft WebSocket telemetry and GNSS tracks | Protocol integration plus local client tests; real private network end-to-end soak pending |
+| Simulator command authority | Exclusive pilot lease, monotonic sequence, bounded deadlines, MAVLink COMMAND_LONG serialization, FC ACK + post-ACK observation lifecycle | Standalone unit tests only; **not exposed through API or edge** |
+| Simulator mission protocol | MISSION_ITEM_INT upload, request retries, FC acceptance and exact readback validation | Standalone protocol unit tests only; **no mission upload transport** |
+| Staging Docker | Private broker container with read-only filesystem and loopback-only host publish | Compose validation and container build in CI; no Oracle deployment |
+| Physical flight-control | **Not implemented** | No Pi/Oracle/Pixhawk command acceptance |
 
-**No synthetic or fallback telemetry** is used. Aircraft position is hidden unless both real position and a fresh GPS fix exist. Heartbeat, attitude and other instrument fields expire when packets stop. Invalid or foreign MAVLink messages are rejected rather than shown as live.
+The cloud broker and Pi agent are **telemetry-only**. Their authenticated viewer connections cannot transmit commands to the aircraft. The isolated command and mission protocol libraries must not be interpreted as a flight-control feature.
 
-## Install / update on Windows
+## Quick start — Windows console
 
-Prerequisites: Python 3.12+, Node.js 20+, Git. Open PowerShell:
+Install Python 3.12+, Node.js 20+, and Git, then use PowerShell:
 
 ~~~powershell
 cd $env:USERPROFILE
 if (!(Test-Path .\vihanga)) {
     git clone https://github.com/Saitanveesh/vihanga.git
 }
-cd vihanga
+cd .\vihanga
 git pull --ff-only origin main
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-Vihanga-Standalone.ps1
 ~~~
 
-Then open **http://127.0.0.1:5173**. The loopback API runs at **http://127.0.0.1:8010**. Keep both PowerShell server windows running. If Windows reports a busy port, first identify the owning process; do not kill an unidentified service.
+Open **http://127.0.0.1:5173** (console) and **http://127.0.0.1:8010/api/v1/health** (local API). The startup script starts the development processes. These ports must remain bound to loopback; do not expose the local development API to the internet.
 
-## First use
+### Connect a telemetry source
 
-1. Open **FLEET**. Register your aircraft ID, human-readable name, autopilot and physical FC interface. Registering does **not** establish telemetry.
-2. Select the aircraft in the left fleet column, click **Connect**.
-3. For an existing Vihanga Pi/Oracle deployment choose **Private cloud**, enter the private **https://YOUR-HOST.ts.net:8443** origin, its *dedicated relay* operator login and the verified flight-controller system ID (commonly 1). This is not the old legacy API on :443. The browser submits credentials to the local Vihanga API, which authenticates to the private relay. The API does not persist the password or JWT in SQLite.
-4. For a simulator choose **Local UDP / SITL**, and make an ArduPilot SITL instance emit actual MAVLink datagrams to **127.0.0.1:14550** (or your selected port). This is a *listener*, not a command sender.
-5. Watch the status. **LIVE** is only shown with fresh FC HEARTBEAT and ATTITUDE messages, not merely when a TCP/WebSocket connection exists. No GPS position is displayed without fresh fix evidence.
-6. Open **PLAN**, choose **Draw survey area**, click at least three map vertices, set line spacing/direction/altitude, and generate survey lanes. The geometry is real but *not terrain/obstacle/airspace validated*. Review transitions. Save as an offline draft; no mission is sent to the FC.
-7. Use **HISTORY** to reopen the actual saved route. Use **LINK** to view received/rejected frame counts, message age, connection errors and disconnect control.
-8. **VIDEO** can open the actual authenticated private camera page, subject to the camera service allowing embedding. There is also an external viewer link.
+1. In FLEET, register an aircraft ID and configure the expected MAVLink flight-controller SYSID.
+2. For local simulator testing choose UDP SITL and send authentic MAVLink data to the configured loopback port. The GCS listens, it does not issue commands.
+3. For the independent cloud broker choose Vihanga Cloud and provide the private HTTPS broker origin plus the vehicle's viewer token. Provision the broker and edge separately according to [staging instructions](docs/STAGING_DEPLOYMENT.md).
+4. For the pre-existing private Oracle relay, use the separate private-cloud connection type, with its relay-specific operator login. This legacy viewer uses a different protocol and credential type.
+5. A **LIVE** indication requires fresh heartbeat and attitude packets from the expected FC identity. Positions require a validated GPS fix. Disconnect and reconnection invalidate cached instrument data.
 
-## Architecture
+Create survey polygons and waypoint missions in PLAN. They are **offline drafts** and must be independently checked for terrain, altitude limits, obstacles, geofences and airspace before any future mission upload. The camera tab opens a configured private viewing endpoint; it does not imply a camera control or flight command channel.
+
+## Data path
 
 ~~~text
-Map + operator controls  — React / MapLibre
-             |
-          API localhost 8010
-             |
-   +---------+-----------+
-   |                     |
-Geospatial mission    Read-only MAVLink manager
-SQLite draft store       |                |
-                       UDP SITL       HTTPS login -> WSS viewer
-                     loopback only      existing Oracle relay
-                                           |
-                                      Existing Pi -> Pixhawk
+Pixhawk UART
+     |
+     v   receive-only
+Pi edge: serial frame parser + per-aircraft WSS device token
+     |
+     v   private TLS gateway
+Cloud broker: aircraft-bound device -> viewer fan-out
+     |
+     v   authenticated WSS viewer
+Local operations API: MAVLink2 projector, freshness and observed GNSS
+     |
+     +----> React console: HUD, map, flight trails, link diagnostics
+
+Separate development-only protocol engines:
+   supervised SITL command authority / mission upload + readback
+   (no connection to physical edge, cloud broker or GCS command UI)
 ~~~
 
-The existing Vihanga Pi–Oracle telemetry service is **not reinstalled, restarted or modified** by this application. This console replaces the Windows Mission Planner viewer while reusing the already demonstrated, independently deployed *telemetry source*. There is currently no new edge agent or general command plane.
+The new cloud broker runs separately from the earlier Pi/Oracle relay and must not overwrite that deployment without dedicated acceptance testing.
 
-## Scope and safety
+## Automated verification
 
-- The API is a local development interface and **does not implement application authentication**. Do not bind or expose port 8010/5173 on an untrusted network.
-- Only private *.ts.net HTTPS :8443 telemetry origins can be configured for this development relay client; do not paste usernames/passwords into issues or commit them to Git.
-- UDP input is bound to 127.0.0.1. A local simulator or producer on your own PC must send authentic MAVLink; it is not an authenticated operational network interface.
-- Satellite basemap tiles require external connectivity and attribution. Obtain a properly licensed map provider/credentials before any commercial release.
-- For an authorized physical flight-control product, separate role/lease authorization, onboard RC precedence, safety interlocks, readback/ACK tracking and measured SITL/HIL/propeller-free acceptance are still required. This version must **not** operate an aircraft.
-
-## Tests
+Run from the repository root:
 
 ~~~powershell
-python -m pip install -e ".\backend[dev]"
-python -m pytest -q backend/tests
+python -m pip install -e ".\backend[dev]" -e ".\cloud[dev]" -e ".\edge[dev]"
+python -m pytest -q backend/tests cloud/tests edge/tests integration/tests
 cd console
-npm install
+npm install --no-audit --no-fund
 npm run build
 ~~~
 
-See [architecture and engineering gates](docs/ARCHITECTURE.md). Current build evidence is in the GitHub Actions run for the exact commit. The initial November 9 Mission Planner-based release lives only in the older **Vihanga-GCS** repository and is retained for fallback/reference.
+GitHub Actions separately checks backend, cloud, edge, the cross-service packet contract, console production build, staging Docker configuration and independence from legacy Mission Planner artifacts. **A green CI result does not certify field readiness.** The integration harness injects the decoded viewer stream into a local GCS session; hosted TLS, real private networking, sustained load, measured latency, HIL and flight safety remain unverified.
+
+## Release gates still outstanding
+
+- Demonstrate Pi -> independent cloud broker -> authenticated GCS viewer with real Pixhawk UART telemetry. Verify a moving HUD against direct USB, with no command traffic.
+- Validate connection loss, process restarts, token rotation, 24-hour soak, bounded queues and multi-aircraft load. Report p50/p95/p99 packet age, throughput, drop counts and host resources.
+- Verify camera streaming under traffic load, GNSS validity, survey geometry, map license and operator workflow on the target Windows machine.
+- Before any physical control path: operator identity/MFA, short-lived pilot authority, vehicle-side safety arbiter, RC/manual precedence, link-loss policy, authenticated acknowledgements, HIL, propeller-free bench and supervised range acceptance.
+
+See [Architecture](docs/ARCHITECTURE.md) and [Staging deployment](docs/STAGING_DEPLOYMENT.md). Never commit operational device tokens or operator credentials.
