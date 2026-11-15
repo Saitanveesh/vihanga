@@ -2,22 +2,25 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import GeoMap, { type MapPoint } from "./GeoMap";
 import FlightInstruments from "./FlightInstruments";
 import OperationsPanel from "./OperationsPanel";
+import ControlPanel from "./ControlPanel";
 import UiIcon, { type IconName } from "./UiIcon";
 import {
   connectBroker, connectCloud, connectUDP, connectTCP, connectSerial, disconnectLink,
   connectBackupBroker, connectBackupCloud, connectBackupSerial, connectBackupUDP, connectBackupTCP,
   activateTelemetrySource, disconnectBackup, getHealth, getMissions,
+  getOperatorCatalog, getParameterReadback, sendBenchRead,
   getFleetTelemetry, getObservedTrack, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
   type Health, type Mission, type SurveyPreview, type Telemetry,
-  type Vehicle, type VehicleCreate, type Waypoint
+  type Vehicle, type VehicleCreate, type Waypoint,
+  type BenchReadKind, type OperatorCatalog, type ParameterReadback
 } from "./api";
 
-type Section = "FLIGHT" | "PLAN" | "FLEET" | "LINK" | "HISTORY" | "VIDEO";
+type Section = "FLIGHT" | "CONTROL" | "PLAN" | "FLEET" | "LINK" | "HISTORY" | "VIDEO";
 type DrawMode = "NONE" | "POLYGON" | "WAYPOINT";
 const EMPTY_POLYGON: MapPoint[] = [];
 const EMPTY_ROUTE: Waypoint[] = [];
 const sections: { label: Section; icon: IconName }[] = [
-  { label: "FLIGHT", icon: "flight" }, { label: "PLAN", icon: "plan" },
+  { label: "FLIGHT", icon: "flight" }, { label: "CONTROL", icon: "shield" }, { label: "PLAN", icon: "plan" },
   { label: "FLEET", icon: "fleet" }, { label: "LINK", icon: "link" },
   { label: "HISTORY", icon: "history" }, { label: "VIDEO", icon: "video" }
 ];
@@ -90,6 +93,8 @@ export default function App() {
   const [openedMission, setOpenedMission] = useState<Mission | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [operatorCatalog, setOperatorCatalog] = useState<OperatorCatalog | null>(null);
+  const [parameterReadback, setParameterReadback] = useState<ParameterReadback | null>(null);
   const [connectionRole, setConnectionRole] = useState<"PRIMARY" | "BACKUP">("PRIMARY");
   const [linkType, setLinkType] = useState<"BROKER" | "CLOUD" | "UDP" | "TCP" | "SERIAL">("CLOUD");
   const [origin, setOrigin] = useState(() => {
@@ -199,6 +204,27 @@ export default function App() {
 
   const active = vehicles.find(v => v.vehicle_id === selected);
   const sample = readings[selected];
+  useEffect(() => {
+    if (!selected) {
+      setOperatorCatalog(null);
+      setParameterReadback(null);
+      return;
+    }
+    let cancelled = false;
+    getOperatorCatalog(selected).then(result => {
+      if (!cancelled) setOperatorCatalog(result);
+    }).catch(() => { if (!cancelled) setOperatorCatalog(null); });
+    return () => { cancelled = true; };
+  }, [selected, sample?.transport, sample?.status, sample?.active_source]);
+  useEffect(() => {
+    setParameterReadback(null);
+    if (!selected) return;
+    let cancelled = false;
+    getParameterReadback(selected).then(result => {
+      if (!cancelled) setParameterReadback(result);
+    }).catch(() => { if (!cancelled) setParameterReadback(null); });
+    return () => { cancelled = true; };
+  }, [selected, sample?.transport, sample?.active_source]);
   const cameraUrl = cameraPages[selected] ?? "";
   const location = sample?.latitude != null && sample.longitude != null
     ? { latitude: sample.latitude, longitude: sample.longitude } : null;
@@ -408,6 +434,21 @@ export default function App() {
       notify("Primary and standby telemetry receivers disconnected.");
     } catch (e) { fail(e); } finally { setBusy(false); }
   }
+  async function requestBenchRead(query: BenchReadKind, parameter?: string) {
+    if (!selected || busy) return;
+    setBusy(true);
+    try {
+      const receipt = await sendBenchRead(selected, query, parameter);
+      notify(receipt.query + ": serial request written. Await the actual FC response.");
+      setParameterReadback(await getParameterReadback(selected));
+    } catch (error) { fail(error); }
+    finally { setBusy(false); }
+  }
+  async function refreshParameters() {
+    if (!selected) return;
+    try { setParameterReadback(await getParameterReadback(selected)); }
+    catch (error) { fail(error); }
+  }
   function setVideo(event: FormEvent) {
     event.preventDefault();
     try {
@@ -434,7 +475,7 @@ export default function App() {
             <span className="rail-icon"><UiIcon name={item.icon} size={21}/></span><small>{item.label}</small>
           </button>)}
         </nav>
-        <div className="rail-foot">GCS / 0.17</div>
+        <div className="rail-foot">GCS / 0.18</div>
       </aside>
       {fleetOpen && <aside className="fleetbar">
         <div className="fleetbar-head"><span>AIRCRAFT</span><strong>{vehicles.length}</strong></div>
@@ -473,7 +514,7 @@ export default function App() {
           <div className="toolbar-leading">
             <span className="product-label">VIHANGA / OPERATIONS</span>
             <span className="toolbar-separator">/</span>
-            <strong>{section === "PLAN" ? "MISSION PLANNING" : section === "VIDEO" ? "LIVE VIDEO" : section === "LINK" ? "LINK HEALTH" : section}</strong>
+            <strong>{section === "PLAN" ? "MISSION PLANNING" : section === "VIDEO" ? "LIVE VIDEO" : section === "LINK" ? "LINK HEALTH" : section === "CONTROL" ? "AIRCRAFT CONTROL" : section}</strong>
             <span className="toolbar-subtitle">{active
               ? active.label + " · " + active.autopilot : "No aircraft selected"}</span>
           </div>
@@ -536,7 +577,14 @@ export default function App() {
             {section === "PLAN" && waypoints.length > 0 &&
               <span className="route-count">{waypoints.length} waypoint{waypoints.length === 1 ? "" : "s"}</span>}
           </div>}
-          {panelOpen && section === "FLIGHT" && <div id="operator-panel" className="float-panel flight-summary">
+          {panelOpen && section === "CONTROL" && <ControlPanel
+             aircraftId={selected} catalog={operatorCatalog} telemetry={sample}
+             readback={parameterReadback} busy={busy}
+             onClose={() => setPanelOpen(false)}
+             onBenchQuery={(query, parameter) => { void requestBenchRead(query, parameter); }}
+             onRefreshReadback={() => { void refreshParameters(); }}
+           />}
+           {panelOpen && section === "FLIGHT" && <div id="operator-panel" className="float-panel flight-summary">
             <div className="panel-title"><h2>Flight status</h2><span>{active?.label || "No aircraft selected"}</span><button type="button" className="panel-close" onClick={() => setPanelOpen(false)} aria-label="Close panel" title="Close panel">×</button></div>
             <div className="status-rows">
               <div><span>Connection</span><strong>{linkLabel(sample?.status)}</strong></div>

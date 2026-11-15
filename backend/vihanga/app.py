@@ -18,9 +18,10 @@ import re
 import sqlite3
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from vihanga.survey import router as survey_router
+from vihanga.operator_contract import BenchQuery, catalog
 from vihanga.telemetry import BrokerConnect, CloudConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -96,7 +97,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             revision_sha256 TEXT NOT NULL, created_at TEXT NOT NULL
         )""")
 
-    app = FastAPI(title="Vihanga standalone operations API", version="0.17.0")
+    app = FastAPI(title="Vihanga standalone operations API", version="0.18.0")
     # Loopback-only development API. Reject DNS rebinding via arbitrary Host values.
     app.add_middleware(TrustedHostMiddleware,
                        allowed_hosts=["127.0.0.1", "localhost", "testserver"])
@@ -266,6 +267,61 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             await links.stop(vehicle_id)
 
 
+    @app.get("/api/v1/operator/{vehicle_id}/catalog")
+    def operator_catalog(vehicle_id: str):
+        require_vehicle(vehicle_id)
+        session = links.active_session(vehicle_id)
+        local = session is not None and session.kind == "LOCAL_SERIAL_RECEIVE"
+        connected = session is not None and session.state == "CONNECTED"
+        return {
+            "vehicle_id": vehicle_id,
+            **catalog(
+                bench_enabled=os.environ.get("VIHANGA_BENCH_READ_REQUESTS") == "1",
+                local_serial=local,
+                connected=connected,
+                disarmed_verified=bool(connected and session.projector.snapshot()["heartbeat_fresh"]
+                                       and session.projector.snapshot()["armed"] is False),
+            )
+        }
+
+    @app.get("/api/v1/operator/{vehicle_id}/parameters")
+    def read_observed_parameters(vehicle_id: str):
+        require_vehicle(vehicle_id)
+        session = links.active_session(vehicle_id)
+        if session is None or session.state != "CONNECTED":
+            return {
+                "vehicle_id": vehicle_id,
+                "status": "NO_SERIAL_DATA", "items": {},
+                "received": 0, "reported_total": None
+            }
+        if session.kind != "LOCAL_SERIAL_RECEIVE":
+            raise HTTPException(status_code=409, detail="Parameter bench readback requires local serial")
+        return {"vehicle_id": vehicle_id, **session.projector.parameter_snapshot()}
+
+    @app.post("/api/v1/operator/{vehicle_id}/bench-query")
+    async def query_bench_fc(vehicle_id: str, payload: BenchQuery, request: Request):
+        require_vehicle(vehicle_id)
+        # An explicit local bench intent is not an authentication substitute.
+        # No network command route or flight-changing MAVLink writer exists.
+        if request.headers.get("x-vihanga-bench-read") != "confirm-non-actuating-request":
+            raise HTTPException(status_code=403, detail="Explicit bench read header required")
+        origin = request.headers.get("origin")
+        if origin and origin not in {
+            "http://127.0.0.1:5173", "http://localhost:5173",
+            "http://127.0.0.1:8010", "http://localhost:8010",
+        }:
+            raise HTTPException(status_code=403, detail="Browser origin not approved")
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            raise HTTPException(status_code=403, detail="Cross-site bench requests rejected")
+        session = links.active_session(vehicle_id)
+        if session is None or session.kind != "LOCAL_SERIAL_RECEIVE":
+            raise HTTPException(status_code=409, detail="Local USB serial connection required")
+        try:
+            result = await links.bench_request(vehicle_id, payload)
+        except ValueError as ex:
+            raise HTTPException(status_code=409, detail=str(ex)) from ex
+        return {**result, "query": payload.query.value}
+
     @app.get("/api/v1/health")
     def health():
         return {"service": "vihanga-standalone", "status": "ok",
@@ -279,6 +335,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             "live_telemetry": True, "cloud_command_dispatch": False,
             "mission_upload": False, "remote_arm": False,
             "takeoff": False, "land": False, "rtl": False,
+            "bench_nonactuating_requests": os.environ.get("VIHANGA_BENCH_READ_REQUESTS") == "1",
             "reason": "Real read-only private WSS and localhost SITL UDP available. No flight-control command transport."
         }
 

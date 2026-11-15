@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import serial
+from vihanga.operator_contract import BenchQuery, encode_bench_query
 from pymavlink import mavutil
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -115,6 +116,9 @@ class MAVLinkProjector:
     last_track_at: float = -1.0
     track_distance_m: float = 0.0
     recent_frames: deque = field(default_factory=lambda: deque(maxlen=512))
+    # Parameter cache is bounded and only stores verified FC-origin responses.
+    parameters: dict[str, tuple[float, int, float]] = field(default_factory=dict)
+    parameter_total: int | None = None
 
     # Raw RF readings are transport-dependent. They are not dBm or percent.
     # Sensor flags are only available when SYS_STATUS actually arrives.
@@ -232,6 +236,22 @@ class MAVLinkProjector:
                     self._set("voltage_v", round(msg.voltage_battery / 1000, 2), now)
                 if 0 <= msg.battery_remaining <= 100:
                     self._set("battery_pct", int(msg.battery_remaining), now)
+            elif typ == "PARAM_VALUE":
+                raw_name = msg.param_id
+                name = raw_name.decode("ascii", "ignore") if isinstance(raw_name, bytes) else str(raw_name)
+                name = name.split("\\x00", 1)[0].strip()
+                value = float(msg.param_value)
+                if (name and len(name) <= 16 and name.isascii() and
+                        all(c.isalnum() or c == "_" for c in name) and isfinite(value)):
+                    # Oldest value first. Never allow unbounded FC input to
+                    # consume all GCS memory.
+                    if name not in self.parameters and len(self.parameters) >= 1500:
+                        oldest = next(iter(self.parameters))
+                        del self.parameters[oldest]
+                    self.parameters[name] = (value, int(msg.param_type), now)
+                    count = int(msg.param_count)
+                    if 0 <= count <= 100000:
+                        self.parameter_total = count
             elif typ == "VFR_HUD":
                 if isfinite(msg.airspeed) and 0 <= msg.airspeed <= 400:
                     self._set("airspeed_mps", round(msg.airspeed, 2), now)
@@ -242,6 +262,16 @@ class MAVLinkProjector:
                 if isfinite(msg.climb) and abs(msg.climb) <= 150:
                     self._set("climb_mps", round(msg.climb, 2), now)
         return accepted
+
+    def parameter_snapshot(self) -> dict:
+        return {
+            "status": "OBSERVED_FC_PARAMETERS_ONLY",
+            "received": len(self.parameters),
+            "reported_total": self.parameter_total,
+            "items": {name: {"value": value, "type": kind}
+                      for name, (value, kind, _) in sorted(self.parameters.items())},
+            "warning": "Readback values are not configuration changes. No parameter writes are enabled."
+        }
 
     def track_snapshot(self) -> dict:
         return {
@@ -303,6 +333,9 @@ class Session:
     udp: asyncio.DatagramTransport | None = None
     serial_port: object | None = None
     tcp_writer: asyncio.StreamWriter | None = None
+    bench_queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=8))
+    bench_last_request_at: float = -1.0
+    bench_sent: int = 0
 
     def snapshot(self) -> dict:
         state = self.state
@@ -454,6 +487,14 @@ class LinkManager:
             session.tcp_writer.close()
         if session.serial_port is not None:
             session.serial_port.close()
+        # Cancel pending queries before the receiver is shut down.
+        while not session.bench_queue.empty():
+            try:
+                _packet, future = session.bench_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if not future.done():
+                future.set_exception(RuntimeError("Serial receiver disconnected"))
         if session.task:
             session.task.cancel()
             try:
@@ -487,6 +528,23 @@ class LinkManager:
     async def _read_serial(self, session: Session):
         try:
             while True:
+                # One actor owns both directions of the serial port.
+                # Queries are specifically allowlisted elsewhere and are never
+                # arbitrary MAVLink packets supplied by an HTTP caller.
+                if not session.bench_queue.empty():
+                    packet, future = session.bench_queue.get_nowait()
+                    try:
+                        if session.state != "CONNECTED":
+                            raise RuntimeError("Serial link not connected")
+                        count = await asyncio.to_thread(session.serial_port.write, packet)
+                        if count != len(packet):
+                            raise RuntimeError("Incomplete serial request write")
+                        session.bench_sent += 1
+                        if not future.done():
+                            future.set_result(count)
+                    except Exception as exc:
+                        if not future.done():
+                            future.set_exception(exc)
                 chunk = await asyncio.to_thread(session.serial_port.read, 512)
                 if chunk:
                     session.projector.push(bytes(chunk))
@@ -497,6 +555,46 @@ class LinkManager:
         finally:
             if session.serial_port is not None:
                 session.serial_port.close()
+
+    async def bench_request(self, vehicle_id: str, query: BenchQuery) -> dict:
+        """Send a non-actuating read request through the existing serial owner.
+
+        A serial write is not FC acknowledgement or command completion.
+        Disabled by default, loopback-only, and never through the cloud.
+        """
+        if os.environ.get("VIHANGA_BENCH_READ_REQUESTS") != "1":
+            raise ValueError("Bench read requests are disabled by default")
+        session = self.active_session(vehicle_id)
+        if (session is None or session.kind != "LOCAL_SERIAL_RECEIVE" or
+                session.state != "CONNECTED" or session.serial_port is None or
+                session.task is None or session.task.done()):
+            raise ValueError("Connect a local serial receiver before bench requests")
+        sample = session.projector.snapshot()
+        if not sample["heartbeat_fresh"] or sample["armed"] is not False:
+            raise ValueError("Fresh disarmed FC heartbeat required for bench reads")
+        # Defense in depth: the serial owner performs the allowlist encoding.
+        # Callers never provide arbitrary MAVLink bytes for transmission.
+        packet = encode_bench_query(query, session.projector.system_id)
+        if session.bench_queue.full():
+            raise ValueError("Bench request queue full")
+        now = time.monotonic()
+        if session.bench_last_request_at >= 0 and now - session.bench_last_request_at < 0.25:
+            raise ValueError("Bench read request rate limit")
+        session.bench_last_request_at = now
+        future = asyncio.get_running_loop().create_future()
+        session.bench_queue.put_nowait((packet, future))
+        try:
+            written = await asyncio.wait_for(future, timeout=2.0)
+        except (asyncio.TimeoutError, RuntimeError) as exc:
+            raise ValueError("Bench serial request not confirmed as written") from exc
+        return {
+            "vehicle_id": vehicle_id,
+            "result": "SERIAL_WRITE_COMPLETED",
+            "bytes_written": written,
+            "fc_acknowledged": False,
+            "flight_control_enabled": False,
+            "warning": "A request was written to the bench serial port. FC response is separate."
+        }
 
     async def start_tcp(self, request: TCPConnect):
         if request.vehicle_id in self.sessions:

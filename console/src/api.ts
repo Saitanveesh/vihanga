@@ -199,3 +199,54 @@ export interface ObservedTrack {
 }
 export const getObservedTrack = (id: string) =>
   request<ObservedTrack>("flight-tracks/" + encodeURIComponent(id));
+
+export type OperatorGroup = "FLIGHT" | "NAVIGATION" | "MISSIONS" | "PARAMETERS" | "DIAGNOSTICS" | "SETUP" | "LOGS";
+export type BenchReadKind =
+  "FC_VERSION" | "STATUS" | "GPS" | "GPS2" | "EKF" | "RC" |
+  "BATTERY" | "HOME" | "EXTENDED_STATE" | "PARAMETER_LIST" |
+  "PARAMETER_READ" | "MISSION_SUMMARY";
+export interface OperatorAction {
+  code: string;
+  label: string;
+  group: OperatorGroup;
+  risk: "READ" | "HIGH" | "CRITICAL";
+  requirement: string;
+  enabled: boolean;
+  status: "READY" | "LOCKED";
+  reason: string;
+  bench_query: BenchReadKind | null;
+}
+export interface OperatorCatalog {
+  vehicle_id: string;
+  physical_flight_control_enabled: false;
+  cloud_command_dispatch_enabled: false;
+  read_only_bench_enabled: boolean;
+  operations: OperatorAction[];
+}
+export interface ParameterReadback {
+  vehicle_id: string;
+  status: string;
+  received: number;
+  reported_total: number | null;
+  items: Record<string, {value: number; type: number}>;
+  warning?: string;
+}
+export interface BenchReceipt {
+  vehicle_id: string;
+  result: "SERIAL_WRITE_COMPLETED";
+  bytes_written: number;
+  fc_acknowledged: false;
+  flight_control_enabled: false;
+  query: BenchReadKind;
+  warning: string;
+}
+export const getOperatorCatalog = (id: string) =>
+  request<OperatorCatalog>("operator/" + encodeURIComponent(id) + "/catalog");
+export const getParameterReadback = (id: string) =>
+  request<ParameterReadback>("operator/" + encodeURIComponent(id) + "/parameters");
+export const sendBenchRead = (id: string, query: BenchReadKind, parameter?: string) =>
+  request<BenchReceipt>("operator/" + encodeURIComponent(id) + "/bench-query", {
+    method: "POST",
+    headers: {"X-Vihanga-Bench-Read": "confirm-non-actuating-request"},
+    body: JSON.stringify({query, ...(parameter ? {parameter} : {})})
+  });
