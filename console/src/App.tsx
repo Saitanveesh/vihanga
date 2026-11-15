@@ -365,52 +365,106 @@ export default function App() {
             <p className="panel-footnote">Only validated, fresh MAVLink telemetry is shown. Aircraft control is unavailable in this software release.</p>
           </div>}
           {section === "PLAN" && <section className="float-panel plan-panel">
-            <div className="panel-title"><h2>Route planning</h2><span>Draft / not dispatched</span></div>
-            <div className="toggle-row">
-              <button className={drawMode === "POLYGON" ? "active" : ""}
-                onClick={() => { setDrawMode(drawMode === "POLYGON" ? "NONE" : "POLYGON"); setOpenedMission(null); }}>
-                Draw survey area</button>
-              <button className={drawMode === "WAYPOINT" ? "active" : ""}
-                onClick={() => { setDrawMode(drawMode === "WAYPOINT" ? "NONE" : "WAYPOINT"); setOpenedMission(null); }}>
-                Add waypoints</button>
+            <div className="panel-title">
+              <h2>Survey planner</h2>
+              <span>{openedMission ? "SAVED DRAFT" : survey ? "PREVIEW READY" : "DRAFT"}</span>
             </div>
-            {drawMode !== "NONE" && <div className="drawing-note">Click the map to add {drawMode === "POLYGON" ? "polygon vertices" : "waypoints"}.</div>}
-            <div className="plan-options">
-              <label>Line spacing (m)<input type="number" min="5" max="200" value={spacing}
-                onChange={e => { setSpacing(+e.target.value); setSurvey(null); }}/></label>
-              <label>Direction (°)<input type="number" min="0" max="179" value={bearing}
-                onChange={e => { setBearing(+e.target.value); setSurvey(null); }}/></label>
-              <label>Altitude (m)<input type="number" min="10" max="120" value={altitude}
-                onChange={e => { setAltitude(+e.target.value); setSurvey(null); }}/></label>
+            <div className="plan-tabs" aria-label="Coverage pattern">
+              <button type="button" className={pattern === "PARALLEL" ? "active" : ""}
+                onClick={() => { setPattern("PARALLEL"); setSurvey(null); setEditedRoute(null); }}>Parallel</button>
+              <button type="button" className={pattern === "CIRCULAR" ? "active" : ""}
+                onClick={() => { setPattern("CIRCULAR"); setSurvey(null); setEditedRoute(null); }}>Circular</button>
+            </div>
+            <div className="panel-section-label">MISSION GEOMETRY</div>
+            <div className="toggle-row compact-row">
+              <button type="button" className={drawMode === "POLYGON" ? "active" : ""}
+                onClick={() => { setDrawMode(drawMode === "POLYGON" ? "NONE" : "POLYGON"); setOpenedMission(null); }}>
+                Draw boundary</button>
+              <button type="button" className={drawMode === "WAYPOINT" ? "active" : ""}
+                onClick={() => { setDrawMode(drawMode === "WAYPOINT" ? "NONE" : "WAYPOINT"); setOpenedMission(null); }}>
+                Add waypoint</button>
+            </div>
+            {drawMode !== "NONE" && <div className="drawing-note">
+              Map editing active · Click to add {drawMode === "POLYGON" ? "survey vertices" : "route waypoints"}.
+              Vertices can be dragged on the map.
+            </div>}
+            <div className="survey-controls">
+              <label>Line / ring spacing
+                <div className="value-row"><input type="range" min="5" max="100" step="1" value={spacing}
+                  onChange={e => {setSpacing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  <input className="value-box" type="number" min="5" max="200" value={spacing}
+                    onChange={e => {setSpacing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>m</span></div>
+              </label>
+              {pattern === "PARALLEL" && <label>Grid angle
+                <div className="value-row"><input type="range" min="0" max="179" value={bearing}
+                  onChange={e => {setBearing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  <input className="value-box" type="number" min="0" max="179" value={bearing}
+                    onChange={e => {setBearing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>°</span></div>
+              </label>}
+              <label>Flight altitude
+                <div className="value-row"><input type="range" min="10" max="120" value={altitude}
+                  onChange={e => {setAltitude(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  <input className="value-box" type="number" min="10" max="120" value={altitude}
+                    onChange={e => {setAltitude(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>m</span></div>
+              </label>
+              <label>Planned groundspeed
+                <div className="value-row"><input type="range" min="0.5" max="20" step="0.5" value={speed}
+                  onChange={e => {setSpeed(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  <input className="value-box" type="number" min="0.5" max="25" step="0.5" value={speed}
+                    onChange={e => {setSpeed(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>m/s</span></div>
+              </label>
             </div>
             <div className="plan-buttons">
-              <button onClick={() => {
-                if (drawMode === "POLYGON") setPolygon(p => p.slice(0, -1));
-                if (drawMode === "WAYPOINT") setManual(p => p.slice(0, -1));
-                setSurvey(null);
-              }}>Undo point</button>
-              <button onClick={() => { setPolygon([]); setManual([]); setSurvey(null); setOpenedMission(null); }}>Clear</button>
+              <button type="button" onClick={() => {
+                if (drawMode === "POLYGON") setPolygon(p => p.slice(0,-1));
+                if (drawMode === "WAYPOINT") setManual(p => p.slice(0,-1));
+                setSurvey(null);setEditedRoute(null);setOpenedMission(null);
+              }}>Undo</button>
+              <button type="button" onClick={() => {
+                setPolygon([]);setManual([]);setSurvey(null);setEditedRoute(null);
+                setOpenedMission(null);setDrawMode("NONE");
+              }}>Clear area</button>
+              <button type="button" disabled={!polygon.length && !waypoints.length}
+                onClick={() => setFitSignal(v => v+1)}>Fit map</button>
             </div>
-            <button className="major" onClick={() => void preview()}
-              disabled={busy || polygon.length < 3}>Generate survey lanes</button>
+            <button type="button" className="major" disabled={busy || polygon.length < 3}
+              onClick={() => void preview()}>{busy ? "Working…" : "Generate coverage route"}</button>
             <div className="plan-stats">
-              <div><span>Survey vertices</span><strong>{polygon.length}</strong></div>
-              <div><span>Flight lines</span><strong>{survey?.lane_count ?? "—"}</strong></div>
-              <div><span>Waypoints</span><strong>{waypoints.length}</strong></div>
-              <div><span>Estimated route</span><strong>{survey ? (survey.route_distance_m / 1000).toFixed(2) + " km" : "—"}</strong></div>
+              <div><span>Boundary vertices</span><strong>{polygon.length}</strong></div>
+              <div><span>{pattern === "CIRCULAR" ? "Concentric rings" : "Flight lines"}</span><strong>{survey?.lane_count ?? "—"}</strong></div>
+              <div><span>Route waypoints</span><strong>{waypoints.length}</strong></div>
+              <div><span>Route distance</span><strong>{survey ? (survey.route_distance_m/1000).toFixed(2) + " km" : "—"}</strong></div>
+              <div><span>Travel time estimate</span><strong>{survey ? (survey.estimated_duration_s/60).toFixed(1) + " min" : "—"}</strong></div>
             </div>
-            {waypoints.length > 0 && <div className="waypoint-list">
-              {waypoints.slice(0, 80).map((p, i) => <div key={i}><b>{i + 1}</b>
-                {p.latitude.toFixed(5)}, {p.longitude.toFixed(5)}
-                <span>{p.altitude_m} m</span></div>)}
-              {waypoints.length > 80 && <small>Showing 80 of {waypoints.length} points</small>}
+            {survey?.coverage_note && <div className="drawing-note">{survey.coverage_note}</div>}
+            {waypoints.length > 0 && <div className="route-editor">
+              <div className="route-editor-head">
+                <strong>Waypoints ({waypoints.length})</strong>
+                <span>{openedMission ? "READ ONLY" : "EDITABLE"}</span>
+              </div>
+              <div className="route-scroll">
+                {waypoints.slice(0,100).map((p,i) => <div className="route-row" key={i}>
+                  <span className="waypoint-index">{i+1}</span>
+                  <label>LAT<input disabled={!!openedMission} type="number" step="any"
+                    defaultValue={p.latitude} onBlur={e => reviseWaypoint(i,"latitude",e.target.value)}/></label>
+                  <label>LON<input disabled={!!openedMission} type="number" step="any"
+                    defaultValue={p.longitude} onBlur={e => reviseWaypoint(i,"longitude",e.target.value)}/></label>
+                  <label>ALT<input disabled={!!openedMission} type="number" min="0" max="120"
+                    defaultValue={p.altitude_m} onBlur={e => reviseWaypoint(i,"altitude_m",e.target.value)}/></label>
+                </div>)}
+                {waypoints.length > 100 && <p className="panel-footnote">Showing first 100 of {waypoints.length} route points</p>}
+              </div>
             </div>}
+            <div className="export-actions">
+              <button type="button" onClick={exportDraftGeoJSON} disabled={waypoints.length < 2}>Export GeoJSON</button>
+            </div>
             <form className="save-form" onSubmit={e => void saveDraft(e)}>
-              <label>Mission name<input required minLength={3} maxLength={100} placeholder="Survey 01"
-                value={missionTitle} onChange={e => setMissionTitle(e.target.value)}/></label>
-              <button type="submit" className="major" disabled={busy || waypoints.length < 2 || !selected}>Save route draft</button>
+              <label>Mission name<input required minLength={3} maxLength={100}
+                placeholder="Boundary survey · Site 01" value={missionTitle}
+                onChange={e => setMissionTitle(e.target.value)}/></label>
+              <button type="submit" className="major" disabled={busy || waypoints.length < 2 || !selected || !!openedMission}>Save mission draft</button>
             </form>
-            <p className="panel-footnote">Planning geometry is real; terrain, airspace, obstacles and connecting turns are not cleared. No mission upload occurs.</p>
+            <p className="panel-footnote">Route geometry and estimates are calculated, not simulated. No airspace, terrain, turning-radius or obstacle clearance has been verified. No mission upload occurs.</p>
           </section>}
           {section === "FLEET" && <section className="float-panel utility-panel">
             <div className="panel-title"><h2>Aircraft registry</h2><span>{vehicles.length} registered</span></div>
