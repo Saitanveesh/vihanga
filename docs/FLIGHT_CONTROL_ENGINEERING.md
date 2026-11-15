@@ -12,7 +12,7 @@ The **CONTROL** workspace lists actual GCS operations by type:
 |---|---|---|
 | Flight | ARM, DISARM, TAKEOFF, LAND, RTL, Hold/Brake, pause/resume, RC override | Locked; authenticated command transport not installed |
 | Navigation | Flight modes, guided target, set home, target speed, fence | Locked |
-| Missions | Upload, download summary, clear, start | Only non-actuating request for mission count (USB bench opt-in); the rest locked |
+| Missions | Upload, download, read onboard mission summary, clear, start | Only non-actuating mission-count request (USB bench opt-in); full download and all changes locked |
 | Parameters | Request individual parameter or parameter list, write | Reads only on an approved local USB serial bench session; writes locked |
 | Diagnostics | FC version, system, GPS1/GPS2, EKF, RC, battery, home, flight state | Non-actuating USB bench requests |
 | Calibration | Accelerometer, compass, radio, ESC, motors, servo, FC restart | Locked |
@@ -32,14 +32,23 @@ command succeeded. A rendered button is not evidence of an available transport.
    Do **not** set this on the Oracle VM or Raspberry Pi flight deployment.
 4. Start the standalone GCS using the repository startup script. Connect to
    the Pixhawk using Connections → Primary → Serial/USB and verify the actual
-   FC HEARTBEAT and ATTITUDE. Bench read requests remain locked unless a\n   fresh FC HEARTBEAT explicitly reports **DISARMED**.
+   FC HEARTBEAT and ATTITUDE. Bench read requests remain locked unless a
+   fresh FC HEARTBEAT explicitly reports **DISARMED**.
 5. Select CONTROL → Diagnostics. Request FC version, RC, GPS or system status.
    The API returns `SERIAL_WRITE_COMPLETED` after the serial owner writes an
    allowlisted MAVLink read request. Observe the subsequent actual MAVLink
    response or an unavailable value; do not interpret a write as an FC ACK.
 6. In CONTROL → Parameters request `GPS_TYPE` or the parameter list. Inspect
    actual `PARAM_VALUE` responses via Refresh view. No parameter changes occur.
-7. To disable bench requests, close the GCS, remove that environment variable
+7. Alternatively, after all the checks above, run a non-actuating read
+   preflight from a second PowerShell terminal (only after propellers are
+   physically removed):
+
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Vihanga-BenchRead.ps1 -Query FC_VERSION -AircraftId AH-HW-001 -PropellersRemoved
+   ```
+
+8. To disable bench requests, close the GCS, remove that environment variable
    and restart. Default configuration never enables them.
 
 ## Engineering limits
