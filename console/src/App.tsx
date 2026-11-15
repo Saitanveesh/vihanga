@@ -3,7 +3,7 @@ import GeoMap, { type MapPoint } from "./GeoMap";
 import FlightInstruments from "./FlightInstruments";
 import {
   connectCloud, connectUDP, disconnectLink, getHealth, getMissions,
-  getTelemetry, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
+  getTelemetry, getObservedTrack, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
   type Health, type Mission, type SurveyPreview, type Telemetry,
   type Vehicle, type VehicleCreate, type Waypoint
 } from "./api";
@@ -35,6 +35,8 @@ export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [selected, setSelected] = useState("");
   const [readings, setReadings] = useState<Record<string, Telemetry>>({});
+  const [observedTrack, setObservedTrack] = useState<MapPoint[]>([]);
+  const [liveTransportConnected, setLiveTransportConnected] = useState(false);
   const [alert, setAlert] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -99,6 +101,60 @@ export default function App() {
     const handle = window.setInterval(() => void poll(), 1600);
     return () => { mounted = false; window.clearInterval(handle); };
   }, [vehicles]);
+
+
+  // Low-latency local viewer; the backend streams only real FC-derived state.
+  // A separate fleet poll remains as a bounded fallback for disconnected clients.
+  useEffect(() => {
+    if (!selected) { setLiveTransportConnected(false); return; }
+    let stopped = false;
+    let retry: number | undefined;
+    let ws: WebSocket | null = null;
+    function open() {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const path = "/ws/v1/telemetry/" + encodeURIComponent(selected);
+      ws = new WebSocket(protocol + "//" + window.location.host + path);
+      ws.onopen = () => { if (!stopped) setLiveTransportConnected(true); };
+      ws.onmessage = event => {
+        if (stopped) return;
+        try {
+          const sample = JSON.parse(String(event.data)) as Telemetry;
+          if (sample.vehicle_id === selected) {
+            setReadings(previous => ({ ...previous, [selected]: sample }));
+          }
+        } catch { /* ignore malformed local frame; do not display it */ }
+      };
+      ws.onclose = () => {
+        setLiveTransportConnected(false);
+        if (!stopped) retry = window.setTimeout(open, 1600);
+      };
+      ws.onerror = () => ws?.close();
+    }
+    open();
+    return () => {
+      stopped = true;
+      if (retry !== undefined) window.clearTimeout(retry);
+      ws?.close();
+      setLiveTransportConnected(false);
+    };
+  }, [selected]);
+
+  useEffect(() => {
+    setObservedTrack([]);
+    if (!selected) return;
+    let stopped = false;
+    async function refreshTrack() {
+      try {
+        const result = await getObservedTrack(selected);
+        if (!stopped) setObservedTrack(result.points);
+      } catch {
+        if (!stopped) setObservedTrack([]);
+      }
+    }
+    void refreshTrack();
+    const timer = window.setInterval(() => void refreshTrack(), 2800);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [selected]);
 
   const active = vehicles.find(v => v.vehicle_id === selected);
   const sample = readings[selected];
@@ -326,7 +382,7 @@ export default function App() {
         </header>
         <div className="map-stage">
           <GeoMap polygon={section === "PLAN" ? polygon : []} route={section === "PLAN" || section === "HISTORY" ? waypoints : []}
-            position={location} drawing={section === "PLAN" && drawMode !== "NONE"}
+            track={observedTrack} position={location} drawing={section === "PLAN" && drawMode !== "NONE"}
             basemap={basemap} centerSignal={centerSignal} fitSignal={fitSignal}
             onMapClick={clicked} onVertexMove={moveVertex}/>
           <div className="map-tools">
@@ -358,6 +414,8 @@ export default function App() {
               <div><span>GNSS</span><strong>{sample?.gps_fix_type == null ? "NO FIX DATA" : "FIX " + sample.gps_fix_type + " / " + (sample.satellites ?? "—") + " SAT"}</strong></div>
               <div><span>Telemetry age</span><strong>{sample?.age_ms == null ? "—" : sample.age_ms + " ms"}</strong></div>
               <div><span>FC heartbeat</span><strong>{sample?.heartbeat_fresh ? "RECEIVING" : "MISSING / STALE"}</strong></div>
+              <div><span>Observed GNSS points</span><strong>{observedTrack.length}</strong></div>
+              <div><span>Local viewer</span><strong>{liveTransportConnected ? "STREAMING" : "HTTP FALLBACK"}</strong></div>
             </div>
             <p className="panel-footnote">Only validated, fresh MAVLink telemetry is shown. Aircraft control is unavailable in this software release.</p>
           </div>}
@@ -489,6 +547,8 @@ export default function App() {
               <div><span>Transport</span><strong>{sample?.transport || "NONE"}</strong></div>
               <div><span>Status</span><strong>{linkLabel(sample?.status)}</strong></div>
               <div><span>Frames received</span><strong>{sample?.frames_total ?? 0}</strong></div>
+              <div><span>Observed track points</span><strong>{observedTrack.length}</strong></div>
+              <div><span>Local telemetry viewer</span><strong>{liveTransportConnected ? "WEBSOCKET ACTIVE" : "POLLING"}</strong></div>
               <div><span>Rejected frames</span><strong>{sample?.rejected_frames ?? 0}</strong></div>
               <div><span>Last packet age</span><strong>{sample?.age_ms == null ? "—" : sample.age_ms + " ms"}</strong></div>
               <div><span>Receiver error</span><strong>{sample?.error_code || "—"}</strong></div>
@@ -528,7 +588,9 @@ export default function App() {
             </div>}
             {!cameraUrl && <p className="panel-footnote">Enter an actual authenticated MediaMTX/WebRTC camera page. No stock video is displayed.</p>}
           </section>}
-          <div className="map-coordinates">Map center is a default view, not an aircraft position. Aircraft location appears only with a fresh GPS fix.</div>
+          <div className="map-coordinates">{observedTrack.length > 0
+            ? "BLUE: observed GNSS track · AMBER: planned route. Recorded points are not approved flight commands."
+            : "Map center is a default view, not an aircraft position. Live position needs fresh GNSS."}</div>
           {alert && <div className="toast error" role="alert">{alert}<button onClick={() => setAlert("")}>×</button></div>}
           {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
         </div>
