@@ -149,14 +149,17 @@ OPERATIONS: tuple[Operation, ...] = (
 OPERATION_BY_CODE = {entry.code: entry for entry in OPERATIONS}
 
 
-def catalog(*, bench_enabled: bool, local_serial: bool, connected: bool) -> dict:
+def catalog(*, bench_enabled: bool, local_serial: bool, connected: bool,
+            disarmed_verified: bool = False) -> dict:
     operations = []
     for op in OPERATIONS:
-        permitted = bool(op.bench_query and bench_enabled and local_serial and connected)
+        permitted = bool(op.bench_query and bench_enabled and local_serial and connected
+                         and disarmed_verified)
         reason = ("AVAILABLE_LOCAL_BENCH_READ" if permitted else
                   "BENCH_OPT_IN_REQUIRED" if op.bench_query and not bench_enabled else
                   "LOCAL_SERIAL_REQUIRED" if op.bench_query and not local_serial else
                   "SERIAL_NOT_CONNECTED" if op.bench_query and not connected else
+                  "FRESH_DISARMED_HEARTBEAT_REQUIRED" if op.bench_query and not disarmed_verified else
                   "CONTROL_AUTHORITY_NOT_IMPLEMENTED")
         operations.append({
             "code": op.code, "label": op.label, "group": op.group,
@@ -167,6 +170,6 @@ def catalog(*, bench_enabled: bool, local_serial: bool, connected: bool) -> dict
     return {
         "physical_flight_control_enabled": False,
         "cloud_command_dispatch_enabled": False,
-        "read_only_bench_enabled": bench_enabled and local_serial and connected,
+        "read_only_bench_enabled": bench_enabled and local_serial and connected and disarmed_verified,
         "operations": operations,
     }
