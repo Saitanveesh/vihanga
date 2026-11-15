@@ -5,7 +5,7 @@ import socket
 import pytest
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
 
-from vihanga.telemetry import MAVLinkProjector, LinkManager, UDPConnect, TCPConnect, validate_private_origin
+from vihanga.telemetry import MAVLinkProjector, LinkManager, Session, UDPConnect, TCPConnect, validate_private_origin
 
 
 def frame(message, source_system=1):
@@ -171,6 +171,17 @@ async def test_parallel_primary_udp_and_backup_tcp_require_manual_evidence_gated
         assert promoted["status"] == "LIVE"
         assert mgr.active_session(vehicle) is mgr.standby_managers[vehicle].sessions[vehicle]
 
+        # Standby loss must not silently reselect the primary or replay a
+        # previously fresh attitude as if the dead TCP connection were live.
+        release.set()
+        await asyncio.sleep(.15)
+        failed_backup = mgr.snapshot(vehicle)
+        assert failed_backup["active_source"] == "BACKUP"
+        assert failed_backup["status"] == "DISCONNECTED"
+        assert failed_backup["heartbeat_fresh"] is False
+        assert failed_backup["attitude_fresh"] is False
+        assert failed_backup["roll_deg"] is None
+
         restored = mgr.select_source(vehicle, "PRIMARY")
         assert restored["status"] == "LIVE"
         assert restored["transport"] == "LOCAL_UDP_SITL"
@@ -204,3 +215,20 @@ async def test_backup_cannot_be_selected_without_fresh_fc_attitude():
         assert mgr.snapshot(vehicle)["backup_status"] == "NOT_CONFIGURED"
     finally:
         await mgr.stop(vehicle)
+
+
+
+def test_disconnected_receiver_never_displays_cached_attitude_as_fresh():
+    projector = MAVLinkProjector(1)
+    assert projector.push(frame(heartbeat())) == 1
+    assert projector.push(frame(attitude())) == 1
+    receiver = Session("TEST-004", "LOCAL_TCP_RECEIVE", projector, state="CONNECTED")
+    assert receiver.snapshot()["status"] == "LIVE"
+    receiver.state = "DISCONNECTED"
+    disconnected = receiver.snapshot()
+    assert disconnected["status"] == "DISCONNECTED"
+    assert disconnected["heartbeat_fresh"] is False
+    assert disconnected["attitude_fresh"] is False
+    assert disconnected["roll_deg"] is None
+    assert disconnected["pitch_deg"] is None
+    assert disconnected["flight_control_enabled"] is False
