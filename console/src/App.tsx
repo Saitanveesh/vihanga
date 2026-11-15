@@ -773,65 +773,129 @@ export default function App() {
         <FlightInstruments telemetry={sample}/>
       </div>
       {connectOpen && <div className="modal-backdrop" onClick={e => {
-        if (e.currentTarget === e.target) { setConnectOpen(false); setPassword(""); setViewerToken(""); }
+        if (e.currentTarget === e.target) {
+          setConnectOpen(false); setPassword(""); setViewerToken("");
+        }
       }}>
-        <section className="connect-dialog" role="dialog" aria-modal="true" aria-labelledby="connect-title">
-          <div className="dialog-head"><div><h2 id="connect-title">Connect aircraft</h2><p>{active?.label} · {selected}</p></div>
-            <button type="button" onClick={() => { setConnectOpen(false); setPassword(""); }}>×</button></div>
-          <div className="transport-tabs five">
-            <button type="button" className={linkType === "BROKER" ? "active" : ""} onClick={() => setLinkType("BROKER")}>Vihanga Cloud</button>
-            <button type="button" className={linkType === "CLOUD" ? "active" : ""} onClick={() => setLinkType("CLOUD")}>Private relay</button>
-            <button type="button" className={linkType === "SERIAL" ? "active" : ""} onClick={() => setLinkType("SERIAL")}>USB</button>
-            <button type="button" className={linkType === "UDP" ? "active" : ""} onClick={() => setLinkType("UDP")}>UDP</button>
-            <button type="button" className={linkType === "TCP" ? "active" : ""} onClick={() => setLinkType("TCP")}>TCP</button>
+        <section className="connect-dialog receiver-dialog" role="dialog" aria-modal="true"
+          aria-labelledby="connect-title">
+          <header className="dialog-head">
+            <div><span className="modal-eyebrow">VIHANGA / RECEIVER MANAGEMENT</span>
+              <h2 id="connect-title">Connection settings</h2>
+              <p>{active?.label || "Aircraft"} · {selected || "Not selected"}</p></div>
+            <button type="button" aria-label="Close connection settings"
+              onClick={() => { setConnectOpen(false); setPassword(""); setViewerToken(""); }}>×</button>
+          </header>
+          <div className="receiver-overview" aria-label="Receiver status">
+            <div className="receiver-summary">
+              <span>PRIMARY {sample?.active_source !== "BACKUP" && <b>SELECTED</b>}</span>
+              <strong className={sample?.primary_status === "LIVE" ? "receiver-live" : ""}>
+                {sample?.primary_status?.replaceAll("_", " ") || "OFFLINE"}</strong>
+              <small>{sample?.primary_transport || "No receiver connected"}</small>
+            </div>
+            <div className="receiver-summary">
+              <span>BACKUP {sample?.active_source === "BACKUP" && <b>SELECTED</b>}</span>
+              <strong className={sample?.backup_status === "LIVE" ? "receiver-live" : ""}>
+                {sample?.backup_status?.replaceAll("_", " ") || "NOT CONFIGURED"}</strong>
+              <small>{sample?.backup_transport || "No standby receiver"}</small>
+            </div>
           </div>
-          {sample?.transport && <div className="dialog-info connection-session" role="status">
-            <strong>Existing receiver session: {sample.transport}</strong>
-            <div>State: {sample.status}{sample.error_code ? " · " + sample.error_code : ""}.</div>
-            <div>{sample.status === "LIVE"
-              ? "Real aircraft packets are arriving. Disconnect this receiver before changing transports."
-              : "A receiver session remains registered even if no telemetry is arriving. Clear it to retry."}</div>
-            <button type="button" disabled={busy} onClick={() => void stopLink()}>
-              {busy ? "Disconnecting…" : sample.status === "LIVE" ? "Disconnect active receiver" : "Clear receiver session"}
-            </button>
-          </div>}
-          <form onSubmit={e => void startLink(e)} className="form-stack">
+          <div className="connection-role-tabs" role="group" aria-label="Receiver assignment">
+            <button type="button" aria-pressed={connectionRole === "PRIMARY"}
+              className={connectionRole === "PRIMARY" ? "active" : ""}
+              onClick={() => setConnectionRole("PRIMARY")}>Primary link</button>
+            <button type="button" aria-pressed={connectionRole === "BACKUP"}
+              className={connectionRole === "BACKUP" ? "active" : ""}
+              onClick={() => setConnectionRole("BACKUP")}>Backup link</button>
+          </div>
+          <div className="connection-protocols">
+            <span>PRIVATE NETWORK</span>
+            <div className="connection-methods cloud" role="group" aria-label="Cloud connection type">
+              <button type="button" aria-pressed={linkType === "CLOUD"}
+                className={linkType === "CLOUD" ? "active" : ""}
+                onClick={() => chooseLinkType("CLOUD")}><UiIcon name="shield" size={15}/> Private relay</button>
+              <button type="button" aria-pressed={linkType === "BROKER"}
+                className={linkType === "BROKER" ? "active" : ""}
+                onClick={() => chooseLinkType("BROKER")}><UiIcon name="radio" size={15}/> Vihanga Cloud</button>
+            </div>
+            <span>LOCAL / RECOVERY</span>
+            <div className="connection-methods local" role="group" aria-label="Local connection type">
+              <button type="button" aria-pressed={linkType === "SERIAL"}
+                className={linkType === "SERIAL" ? "active" : ""}
+                onClick={() => chooseLinkType("SERIAL")}><UiIcon name="link" size={15}/> Serial / USB</button>
+              <button type="button" aria-pressed={linkType === "UDP"}
+                className={linkType === "UDP" ? "active" : ""}
+                onClick={() => chooseLinkType("UDP")}><UiIcon name="activity" size={15}/> UDP</button>
+              <button type="button" aria-pressed={linkType === "TCP"}
+                className={linkType === "TCP" ? "active" : ""}
+                onClick={() => chooseLinkType("TCP")}><UiIcon name="database" size={15}/> TCP</button>
+            </div>
+          </div>
+          <form onSubmit={e => void startLink(e)} className="form-stack connection-form">
             {linkType === "BROKER" ? <>
               <label>Vihanga Cloud origin<input type="url" required placeholder="https://cloud-host.ts.net:8443"
                 value={origin} onChange={e => setOrigin(e.target.value)}/></label>
               <label>Aircraft-scoped viewer token<input required type="password" autoComplete="off"
                 value={viewerToken} onChange={e => setViewerToken(e.target.value)}/></label>
             </> : linkType === "CLOUD" ? <>
-              <label>Private relay origin<input type="url" required placeholder="https://host.ts.net:8443"
+              <label>Private relay origin<input type="url" required
+                placeholder="https://host.ts.net:8443"
                 value={origin} onChange={e => setOrigin(e.target.value)}/></label>
               <label>Operator username<input required value={username}
                 onChange={e => setUsername(e.target.value)}/></label>
               <label>Operator password<input required type="password" autoComplete="off"
                 value={password} onChange={e => setPassword(e.target.value)}/></label>
             </> : linkType === "SERIAL" ? <>
-              <label>Serial port<input required placeholder="COM3"
+              <label>Serial interface<input required placeholder="COM3"
                 value={serialPort} onChange={e => setSerialPort(e.target.value)}/></label>
               <label>Baud rate<select value={serialBaud}
                 onChange={e => setSerialBaud(Number(e.target.value))}>
                   {[9600,19200,38400,57600,115200,230400,460800,921600].map(baud =>
                     <option key={baud} value={baud}>{baud}</option>)}
                 </select></label>
-            </> : <label>{linkType === "TCP" ? "Local TCP port" : "Local UDP listen port"}
-              <input required type="number" min="1024" max="65535" value={port}
-                onChange={e => setPort(Number(e.target.value))}/></label>}
-            <label>FC MAVLink system ID<input type="number" min="1" max="254"
+            </> : <div className="connection-address">
+              <label>IP address<input value="127.0.0.1" readOnly aria-label="Loopback IP address"/></label>
+              <label>{linkType === "TCP" ? "TCP port" : "UDP listen port"}
+                <input required type="number" min="1024" max="65535" value={port}
+                  onChange={e => setPort(Number(e.target.value))}/></label>
+            </div>}
+            <label>Flight-controller MAVLink system ID<input type="number" min="1" max="254"
               value={sysid} onChange={e => setSysid(+e.target.value)}/></label>
-            <p className="dialog-info">{linkType === "BROKER"
-              ? "Per-aircraft Vihanga Cloud viewer. The TLS broker must be separately provisioned and accessible; the token is not stored in the database."
-              : linkType === "CLOUD"
-                ? "Private compatibility relay; connect your PC to the authorized Tailscale network."
-              : linkType === "SERIAL"
-                ? "Vihanga reads the FC serial stream locally. Close other applications holding the same COM port."
-                : "Connection restricted to 127.0.0.1. Use a local SITL or authorized telemetry endpoint."}
-              {" "}All connection types are receive-only and do not send flight commands.</p>
-            <button className="major" disabled={busy || !selected || Boolean(sample?.transport)} type="submit">
-              {busy ? "Connecting…" : "Start telemetry connection"}</button>
+            <p className="connection-help">
+              {connectionRole === "BACKUP" ? "Backup receives independent data and must use a different transport class with the same FC system ID. It is never selected automatically." :
+                "Primary is the default telemetry source. It does not issue commands to the aircraft."}
+              {" "}Cloud credentials are not saved; previously used origins may be remembered locally.
+            </p>
+            <div className="connection-form-actions">
+              <button type="button" className="connection-cancel"
+                onClick={() => { setConnectOpen(false); setPassword(""); setViewerToken(""); }}>Cancel</button>
+              <button className="major" disabled={busy || !selected ||
+                (connectionRole === "PRIMARY" ? Boolean(sample?.primary_transport) :
+                  !sample?.primary_transport || Boolean(sample?.backup_transport))}
+                type="submit">{busy ? "Connecting…" :
+                  connectionRole === "BACKUP" ? "Connect backup receiver" : "Connect primary receiver"}</button>
+            </div>
           </form>
+          {(sample?.primary_transport || sample?.backup_transport) &&
+            <div className="connection-management">
+              <span>RECEIVER CONTROL</span>
+              <div>
+                {sample?.backup_transport && <>
+                  <button type="button" disabled={busy || sample.backup_status !== "LIVE" ||
+                      sample.active_source === "BACKUP"}
+                    onClick={() => void chooseSource("BACKUP")}>Use backup</button>
+                  <button type="button" disabled={busy || sample.primary_status !== "LIVE" ||
+                      sample.active_source !== "BACKUP"}
+                    onClick={() => void chooseSource("PRIMARY")}>Restore primary</button>
+                  <button type="button" disabled={busy} onClick={() => void stopBackupLink()}>
+                    Remove backup</button>
+                </>}
+                <button type="button" className="disconnect-all" disabled={busy}
+                  onClick={() => void stopLink()}>Disconnect both</button>
+              </div>
+            </div>}
+          <p className="connection-safety"><UiIcon name="lock" size={13}/>
+            Receive-only data paths. Automatic flight-control failover is not enabled.</p>
         </section>
       </div>}
     </div>
