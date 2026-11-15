@@ -84,6 +84,12 @@ export interface Telemetry {
   track_points: number;
   message_counts: Record<string, number>;
 }
+export interface BrokerSettings {
+  vehicle_id: string;
+  origin: string;
+  viewer_token: string;
+  fc_system_id: number;
+}
 export interface CloudSettings {
   vehicle_id: string;
   origin: string;
@@ -139,6 +145,7 @@ export const previewSurvey = (input: {
 export const previewCircularSurvey = (input: {
   polygon: GeoPoint[]; spacing_m: number; altitude_m: number; speed_mps: number
 }) => jsonPost<SurveyPreview>("surveys/circular/preview", input);
+export const connectBroker = (input: BrokerSettings) => jsonPost<Telemetry>("links/broker", input);
 export const connectCloud = (input: CloudSettings) => jsonPost<Telemetry>("links/cloud", input);
 export const connectUDP = (input: UDPSettings) => jsonPost<Telemetry>("links/udp", input);
 export const connectTCP = (input: TCPSettings) => jsonPost<Telemetry>("links/tcp", input);

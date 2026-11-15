@@ -150,3 +150,8 @@ body{letter-spacing:.05px}
 .transport-tabs.four{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
 .transport-tabs.four button{padding:10px 4px;font-size:10px;white-space:nowrap}
 @media(max-width:420px){.transport-tabs.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Independent Cloud and compatibility transports remain visibly distinct. */
+.transport-tabs.five{display:grid;grid-template-columns:1.4fr 1.2fr .7fr .7fr .7fr;gap:3px}
+.transport-tabs.five button{font-size:9px;padding:11px 2px;min-width:0}
+@media(max-width:460px){.transport-tabs.five{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.transport-tabs.five button{font-size:10px}}
