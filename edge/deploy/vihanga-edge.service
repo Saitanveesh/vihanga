@@ -16,7 +16,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/tmp
+RuntimeDirectory=vihanga
+RuntimeDirectoryMode=0700
+ReadWritePaths=/run/vihanga
 CapabilityBoundingSet=
 
 [Install]

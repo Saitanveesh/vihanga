@@ -5,4 +5,4 @@ COPY vihanga_cloud ./vihanga_cloud
 RUN pip install --no-cache-dir .
 USER 65534:65534
 EXPOSE 8750
-CMD ["uvicorn","vihanga_cloud.app:app","--host","127.0.0.1","--port","8750"]
+CMD ["uvicorn","vihanga_cloud.app:app","--host","0.0.0.0","--port","8750"]

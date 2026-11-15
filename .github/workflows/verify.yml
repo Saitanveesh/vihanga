@@ -24,6 +24,28 @@ jobs:
       - name: Python compile
         run: python -m compileall -q backend/vihanga
 
+
+  staging-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private-cloud Docker Compose configuration
+        run: |
+          cp cloud/.env.example cloud/.env
+          docker compose -f cloud/compose.staging.yml config --quiet
+      - name: Build reproducible staging relay container
+        run: docker build -f cloud/Dockerfile cloud --tag vihanga-cloud:ci
+      - name: Check container never publishes public host ports in Compose
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -Fq '127.0.0.1:8750:8750' cloud/compose.staging.yml; then
+            echo "FAIL: broker host binding is not loopback"
+            exit 1
+          fi
+          echo "PASS: Docker compose loopback binding"
+
   cloud:
     runs-on: ubuntu-latest
     timeout-minutes: 12
