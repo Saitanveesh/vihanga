@@ -5,6 +5,7 @@ No aircraft command encoder, serial writer, flight actuation, or synthetic data.
 from __future__ import annotations
 
 import asyncio
+import os
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from math import degrees, isfinite
@@ -29,6 +30,38 @@ class CloudConnect(StrictModel):
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=512)
     fc_system_id: int = Field(ge=1, le=254)
+
+
+class BrokerConnect(StrictModel):
+    vehicle_id: str = Field(pattern=r"^[A-Z0-9][A-Z0-9_-]{2,31}$")
+    origin: str = Field(min_length=15, max_length=255)
+    viewer_token: str = Field(min_length=32, max_length=512)
+    fc_system_id: int = Field(ge=1, le=254)
+
+
+def validate_broker_origin(origin: str) -> str:
+    """No arbitrary SSRF. Allow private ts.net or explicitly provisioned hosts."""
+    from ipaddress import ip_address
+    try:
+        p = urlsplit(origin)
+        port = p.port
+        host = p.hostname.lower() if p.hostname else ""
+    except ValueError as exc:
+        raise ValueError("Invalid broker origin") from exc
+    approved = {x.lower().strip() for x in
+                os.environ.get("VIHANGA_APPROVED_CLOUD_HOSTS", "").split(",") if x.strip()}
+    valid_host = host.endswith(".ts.net") or host in approved
+    if (p.scheme != "https" or not host or not valid_host
+            or port not in (None, 443, 8443) or p.username or p.password
+            or p.path not in ("", "/") or p.query or p.fragment):
+        raise ValueError("Vihanga broker origin is not explicitly approved")
+    try:
+        ip_address(host)
+        raise ValueError("Literal IP targets cannot be used as cloud origins")
+    except ValueError as exc:
+        if str(exc).startswith("Literal IP"):
+            raise
+    return "https://" + host + (":" + str(port) if port is not None else "")
 
 
 class UDPConnect(StrictModel):
@@ -321,6 +354,47 @@ class LinkManager:
         finally:
             if session.tcp_writer is not None:
                 session.tcp_writer.close()
+
+    async def start_broker(self, request: BrokerConnect):
+        if request.vehicle_id in self.sessions:
+            raise ValueError("Disconnect the existing aircraft link first")
+        origin = validate_broker_origin(request.origin)
+        session = Session(request.vehicle_id, "VIHANGA_CLOUD_V2", MAVLinkProjector(request.fc_system_id))
+        self.sessions[request.vehicle_id] = session
+        session.task = asyncio.create_task(
+            self._run_broker(session, origin, request.viewer_token))
+        return session.snapshot()
+
+    async def _run_broker(self, session: Session, origin: str, token: str):
+        """WebSocket viewer with vehicle-bound token and no command write path."""
+        failures = 0
+        while True:
+            try:
+                session.state = "CONNECTING" if failures == 0 else "RECONNECTING"
+                session.error_code = None
+                # Replace projector before every reconnect, no stale epochs.
+                session.projector = MAVLinkProjector(session.projector.system_id)
+                uri = origin.replace("https://", "wss://", 1) + (
+                    "/ws/v1/view/" + session.vehicle_id)
+                async with connect(uri,
+                                   additional_headers={"Authorization": "Bearer " + token},
+                                   open_timeout=10, close_timeout=3, ping_interval=15,
+                                   max_size=1024, max_queue=16) as ws:
+                    session.state = "CONNECTED"
+                    failures = 0
+                    async for raw in ws:
+                        if isinstance(raw, bytes):
+                            session.projector.push(raw)
+                session.projector = MAVLinkProjector(session.projector.system_id)
+                session.state, session.error_code = "RECONNECTING", "BROKER_VIEWER_CLOSED"
+                failures += 1
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                session.projector = MAVLinkProjector(session.projector.system_id)
+                session.state, session.error_code = "RECONNECTING", "BROKER_UNAVAILABLE"
+                failures += 1
+            await asyncio.sleep(min(2 ** min(failures, 4), 20))
 
     async def start_cloud(self, request: CloudConnect):
         if request.vehicle_id in self.sessions:
