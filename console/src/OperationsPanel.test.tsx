@@ -30,7 +30,7 @@ describe("read-only fleet link diagnostics", () => {
     const useBackup = screen.getByRole("button", {name:"Use backup"}) as HTMLButtonElement;
     expect(useBackup.disabled).toBe(true);
     expect(screen.getAllByText("not reported")).toHaveLength(5);
-    expect(screen.getByText("—", {selector:".ops-two-metrics strong"})).toBeTruthy();
+    expect(screen.getAllByText("—", {selector:".ops-two-metrics strong"}).length).toBeGreaterThanOrEqual(2);
 
     rerender(<OperationsPanel aircraftId="AH-HW-001"
       telemetry={reading({backup_status:"LIVE",backup_transport:"LOCAL_TCP_RECEIVE",
