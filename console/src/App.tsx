@@ -21,6 +21,7 @@ function linkLabel(status?: string) {
     status === "PARTIAL" ? "PARTIAL TELEMETRY" :
     status === "STALE" ? "STALE DATA" :
     status === "CONNECTING" ? "CONNECTING" :
+    status === "RECONNECTING" ? "RECONNECTING" :
     status === "WAITING_FOR_FRAMES" ? "AWAITING MAVLINK" :
     status === "ERROR" ? "LINK ERROR" : "OFFLINE";
 }
@@ -621,6 +622,16 @@ export default function App() {
             <button type="button" className={linkType === "UDP" ? "active" : ""} onClick={() => setLinkType("UDP")}>UDP</button>
             <button type="button" className={linkType === "TCP" ? "active" : ""} onClick={() => setLinkType("TCP")}>TCP</button>
           </div>
+          {sample?.transport && <div className="dialog-info" role="status">
+            <strong>Existing receiver session: {sample.transport}</strong>
+            <div>State: {sample.status}{sample.error_code ? " · " + sample.error_code : ""}.</div>
+            <div>{sample.status === "LIVE"
+              ? "Real aircraft packets are arriving. Disconnect this receiver before changing transports."
+              : "A receiver session remains registered even if no telemetry is arriving. Clear it to retry."}</div>
+            <button type="button" disabled={busy} onClick={() => void stopLink()}>
+              {busy ? "Disconnecting…" : sample.status === "LIVE" ? "Disconnect active receiver" : "Clear receiver session"}
+            </button>
+          </div>}
           <form onSubmit={e => void startLink(e)} className="form-stack">
             {linkType === "BROKER" ? <>
               <label>Vihanga Cloud origin<input type="url" required placeholder="https://cloud-host.ts.net:8443"
@@ -655,7 +666,7 @@ export default function App() {
                 ? "Vihanga reads the FC serial stream locally. Close other applications holding the same COM port."
                 : "Connection restricted to 127.0.0.1. Use a local SITL or authorized telemetry endpoint."}
               {" "}All connection types are receive-only and do not send flight commands.</p>
-            <button className="major" disabled={busy || !selected} type="submit">
+            <button className="major" disabled={busy || !selected || Boolean(sample?.transport)} type="submit">
               {busy ? "Connecting…" : "Start telemetry connection"}</button>
           </form>
         </section>
