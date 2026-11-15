@@ -133,6 +133,10 @@ class Authority:
         current = self.leases.get(vehicle)
         if current and current.expires_at > now:
             raise Refused("AIRCRAFT_ALREADY_LEASED")
+        if current:
+            # Expired authority must close out any unresolved command before
+            # a new pilot epoch can be created. No old packet is replayed.
+            self.revoke(vehicle, "LEASE_EXPIRED")
         epoch = self._generation.get(vehicle, 0) + 1
         self._generation[vehicle] = epoch
         lease = Lease(vehicle_id=vehicle, pilot_identity=pilot,
