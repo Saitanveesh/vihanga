@@ -22,7 +22,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from vihanga.survey import router as survey_router
 from vihanga.operator_contract import BenchQuery, catalog
-from vihanga.telemetry import BrokerConnect, CloudConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
+from vihanga.telemetry import BrokerConnect, CloudConnect, LanConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -129,6 +129,15 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         except ValueError as ex:
             raise HTTPException(status_code=422, detail=str(ex)) from ex
 
+    @app.post("/api/v1/links/lan")
+    async def connect_direct_lan(request: LanConnect):
+        require_vehicle(request.vehicle_id)
+        try:
+            await links.start_lan(request)
+            return links.snapshot(request.vehicle_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post("/api/v1/links/udp")
     async def connect_udp(request: UDPConnect):
         require_vehicle(request.vehicle_id)
@@ -178,6 +187,10 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/v1/links/backup/cloud")
     async def backup_cloud(request: CloudConnect):
+        return await create_backup_receiver(request)
+
+    @app.post("/api/v1/links/backup/lan")
+    async def backup_direct_lan(request: LanConnect):
         return await create_backup_receiver(request)
 
     @app.post("/api/v1/links/backup/serial")
