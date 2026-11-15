@@ -186,8 +186,8 @@ def create_app(broker: Broker | None = None) -> FastAPI:
             slot.last_heartbeat = slot.last_attitude = 0.0
             parser = mavlink.MAVLink(None)
             epoch = slot.epoch
-        await ws.accept()
         try:
+            await ws.accept()
             while True:
                 message = await ws.receive()
                 if message.get("type") == "websocket.disconnect":
@@ -228,8 +228,8 @@ def create_app(broker: Broker | None = None) -> FastAPI:
             return
         queue: asyncio.Queue = asyncio.Queue(maxsize=64)
         slot.viewers.add(queue)
-        await ws.accept()
         try:
+            await ws.accept()
             while True:
                 wait_for_disconnect = asyncio.create_task(ws.receive())
                 wait_for_frame = asyncio.create_task(queue.get())
