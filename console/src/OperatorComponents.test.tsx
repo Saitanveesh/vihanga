@@ -30,7 +30,7 @@ describe("operator components: verified telemetry only", () => {
       ...data(), attitude_fresh: false, roll_deg: null, pitch_deg: null,
       yaw_deg: null, heartbeat_fresh: false
     }}/>);
-    expect(screen.getByText("NO DATA")).toBeTruthy();
+    expect(screen.getAllByText("NO DATA").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("R —")).toBeTruthy();
     expect(screen.getByText("P —")).toBeTruthy();
     expect(screen.getByText("NO DATA", { selector: ".readout-bad" })).toBeTruthy();
