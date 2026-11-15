@@ -72,3 +72,19 @@ async def test_loopback_udp_sitl_ingress_and_disconnect():
         sender.close()
         await mgr.stop("TEST-001")
     assert mgr.snapshot("TEST-001")["status"] == "OFFLINE"
+
+
+def test_valid_vfr_hud_provides_airspeed_throttle_and_measured_rate():
+    projector = MAVLinkProjector(1)
+    msg = mavlink.MAVLink_vfr_hud_message(12.5, 4.25, 120, 36, 42.0, -1.5)
+    assert projector.push(frame(msg)) == 1
+    state = projector.snapshot()
+    assert state["airspeed_mps"] == 12.5
+    assert state["groundspeed_mps"] == 4.25
+    assert state["throttle_pct"] == 36
+    assert state["climb_mps"] == -1.5
+    assert state["frame_rate_5s_hz"] > 0
+    assert state["gps2_fix_type"] is None
+    assert state["gps2_satellites"] is None
+    assert state["battery_current_a"] is None
+    assert state["flight_control_enabled"] if "flight_control_enabled" in state else True
