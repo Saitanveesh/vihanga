@@ -12,7 +12,7 @@ The **CONTROL** workspace lists actual GCS operations by type:
 |---|---|---|
 | Flight | ARM, DISARM, TAKEOFF, LAND, RTL, Hold/Brake, pause/resume, RC override | Locked; authenticated command transport not installed |
 | Navigation | Flight modes, guided target, set home, target speed, fence | Locked |
-| Missions | Upload, download summary, clear, start | Only non-actuating request for mission count (USB bench opt-in); the rest locked |
+| Missions | Upload, download, read onboard mission summary, clear, start | Only non-actuating mission-count request (USB bench opt-in); full download and all changes locked |
 | Parameters | Request individual parameter or parameter list, write | Reads only on an approved local USB serial bench session; writes locked |
 | Diagnostics | FC version, system, GPS1/GPS2, EKF, RC, battery, home, flight state | Non-actuating USB bench requests |
 | Calibration | Accelerometer, compass, radio, ESC, motors, servo, FC restart | Locked |
