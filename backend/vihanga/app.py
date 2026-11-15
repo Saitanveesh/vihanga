@@ -96,7 +96,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             revision_sha256 TEXT NOT NULL, created_at TEXT NOT NULL
         )""")
 
-    app = FastAPI(title="Vihanga standalone operations API", version="0.14.0")
+    app = FastAPI(title="Vihanga standalone operations API", version="0.17.0")
     # Loopback-only development API. Reject DNS rebinding via arbitrary Host values.
     app.add_middleware(TrustedHostMiddleware,
                        allowed_hosts=["127.0.0.1", "localhost", "testserver"])
@@ -156,6 +156,49 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         except OSError as ex:
             raise HTTPException(status_code=409, detail="Local TCP endpoint unavailable") from ex
 
+    async def create_backup_receiver(request):
+        require_vehicle(request.vehicle_id)
+        try:
+            return await links.start_backup(request)
+        except ValueError as ex:
+            raise HTTPException(status_code=422, detail=str(ex)) from ex
+        except (OSError, Exception) as ex:
+            # Never echo credentials, serial device details or endpoint tokens.
+            raise HTTPException(status_code=409, detail="Backup receiver could not be opened") from ex
+
+    @app.post("/api/v1/links/backup/broker")
+    async def backup_broker(request: BrokerConnect):
+        return await create_backup_receiver(request)
+
+    @app.post("/api/v1/links/backup/cloud")
+    async def backup_cloud(request: CloudConnect):
+        return await create_backup_receiver(request)
+
+    @app.post("/api/v1/links/backup/serial")
+    async def backup_serial(request: SerialConnect):
+        return await create_backup_receiver(request)
+
+    @app.post("/api/v1/links/backup/udp")
+    async def backup_udp(request: UDPConnect):
+        return await create_backup_receiver(request)
+
+    @app.post("/api/v1/links/backup/tcp")
+    async def backup_tcp(request: TCPConnect):
+        return await create_backup_receiver(request)
+
+    @app.post("/api/v1/links/select/{vehicle_id}/{source}")
+    async def select_receive_source(vehicle_id: str, source: Literal["PRIMARY", "BACKUP"]):
+        require_vehicle(vehicle_id)
+        try:
+            return links.select_source(vehicle_id, source)
+        except ValueError as ex:
+            raise HTTPException(status_code=409, detail=str(ex)) from ex
+
+    @app.delete("/api/v1/links/backup/{vehicle_id}")
+    async def disconnect_backup(vehicle_id: str):
+        require_vehicle(vehicle_id)
+        return await links.stop_backup(vehicle_id)
+
     @app.delete("/api/v1/links/{vehicle_id}")
     async def disconnect_link(vehicle_id: str):
         require_vehicle(vehicle_id)
@@ -182,7 +225,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/v1/flight-tracks/{vehicle_id}")
     async def observed_track(vehicle_id: str):
         require_vehicle(vehicle_id)
-        session = links.sessions.get(vehicle_id)
+        session = links.active_session(vehicle_id)
         if session is None:
             return {"vehicle_id": vehicle_id, "status": "NO_LIVE_SESSION",
                     "points": [], "count": 0,
