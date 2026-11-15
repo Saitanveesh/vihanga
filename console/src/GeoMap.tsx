@@ -14,6 +14,9 @@ type Props = {
   basemap: "satellite" | "streets";
   centerSignal: number;
   fitSignal: number;
+  selectedWaypoint?: number | null;
+  onWaypointSelect?: (index: number) => void;
+  fitLeftPadding?: number;
   onMapClick: (point: MapPoint) => void;
   onVertexMove: (index: number, point: MapPoint) => void;
 };
@@ -76,7 +79,9 @@ export function buildGeometry(polygon: MapPoint[], route: RoutePoint[], position
 }
 
 export default function GeoMap({
-  polygon, route, track, position, drawing, basemap, centerSignal, fitSignal, onMapClick, onVertexMove
+  polygon, route, track, position, drawing, basemap, centerSignal, fitSignal,
+  selectedWaypoint = null, onWaypointSelect, fitLeftPadding = 120,
+  onMapClick, onVertexMove
 }: Props) {
   const mount = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -84,6 +89,7 @@ export default function GeoMap({
   const currentBasemap = useRef(basemap);
   const callback = useRef(onMapClick);
   const vertexCallback = useRef(onVertexMove);
+  const waypointCallback = useRef(onWaypointSelect);
   const geometryRef = useRef({polygon,route});
   geometryRef.current = {polygon,route};
   const data = useRef<any>(buildGeometry(polygon, route, position, track));
@@ -91,6 +97,7 @@ export default function GeoMap({
   const movingVertex = useRef<number | null>(null);
   callback.current = onMapClick;
   vertexCallback.current = onVertexMove;
+  waypointCallback.current = onWaypointSelect;
   data.current = buildGeometry(polygon, route, position, track);
   drawingRef.current = drawing;
 
@@ -109,17 +116,17 @@ export default function GeoMap({
       map.addSource("vihanga-geometry", { type: "geojson", data: data.current });
       map.addLayer({ id: "survey-fill", type: "fill", source: "vihanga-geometry",
         filter: ["==", ["get", "kind"], "survey"],
-        paint: { "fill-color": "#31c88a", "fill-opacity": .27 } });
+        paint: { "fill-color": "#318858", "fill-opacity": .26 } });
       map.addLayer({ id: "survey-boundary", type: "line", source: "vihanga-geometry",
         filter: ["in", ["get", "kind"], ["literal", ["survey", "outline"]]],
-        paint: { "line-color": "#64e6aa", "line-width": 2 } });
+        paint: { "line-color": "#cde8ce", "line-width": 2.8, "line-opacity": .97 } });
       map.addLayer({ id: "observed-track", type: "line", source: "vihanga-geometry",
         filter: ["==", ["get", "kind"], "observed_track"],
         paint: { "line-color": "#30b9ff", "line-width": 3,
                  "line-opacity": .84 } });
       map.addLayer({ id: "route-line", type: "line", source: "vihanga-geometry",
         filter: ["==", ["get", "kind"], "route"],
-        paint: { "line-color": "#ffcf64", "line-width": 3 } });
+        paint: { "line-color": "#f0c16f", "line-width": 3.4, "line-opacity": .94 } });
       map.addLayer({ id: "boundary-handles", type: "circle", source: "vihanga-geometry",
         filter: ["==", ["get", "kind"], "vertex"],
         paint: { "circle-radius": 6, "circle-color": "#f7e9cd", "circle-stroke-color": "#284650",
@@ -217,13 +224,18 @@ export default function GeoMap({
     route.forEach((point, index) => {
       const node = document.createElement("div");
       const numbered = route.length <= 35 || index === 0 ||
-        index === route.length - 1 || index % stride === 0;
-      node.className = "vihanga-waypoint" + (numbered ? "" : " compact");
+        index === route.length - 1 || index % stride === 0 ||
+        selectedWaypoint === index;
+      node.className = "vihanga-waypoint" +
+        (numbered ? "" : " compact") + (selectedWaypoint === index ? " selected" : "");
       node.textContent = numbered ? String(index + 1) : "";
       node.setAttribute("aria-label", "Waypoint " + (index + 1));
       node.title = "WP " + (index + 1) + " · " +
         point.latitude.toFixed(6) + ", " + point.longitude.toFixed(6);
-      node.addEventListener("click", event => event.stopPropagation());
+      node.addEventListener("click", event => {
+        event.stopPropagation();
+        waypointCallback.current?.(index);
+      });
       const marker = new maplibregl.Marker({element: node, anchor: "center"})
         .setLngLat([point.longitude, point.latitude]).addTo(map);
       pointMarkers.current.push(marker);
@@ -232,7 +244,7 @@ export default function GeoMap({
       pointMarkers.current.forEach(marker => marker.remove());
       pointMarkers.current = [];
     };
-  }, [route]);
+  }, [route, selectedWaypoint]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -252,9 +264,13 @@ export default function GeoMap({
     if (points.length === 1) {
       map.flyTo({center:[points[0].longitude,points[0].latitude],zoom:17});
     } else {
-      map.fitBounds(bounds, {padding:{top:105,bottom:130,left:440,right:100},maxZoom:19,duration:650});
+      const mapWidth = mount.current?.clientWidth || 1000;
+      const left = Math.max(36, Math.min(fitLeftPadding, Math.floor(mapWidth * .38)));
+      map.fitBounds(bounds, {
+        padding: {top:90,bottom:110,left,right:64},maxZoom:19,duration:650
+      });
     }
-  }, [fitSignal]);
+  }, [fitSignal, fitLeftPadding]);
 
   return <div ref={mount} className={drawing ? "map-canvas drawing" : "map-canvas"}
     role="application" aria-label="Geographic map: select draw mode and click to add polygon vertices or waypoints"/>;
