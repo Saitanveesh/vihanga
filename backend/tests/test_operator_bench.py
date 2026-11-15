@@ -77,7 +77,7 @@ def test_parameter_and_mission_read_packets_are_only_requests():
     {"query": "FC_VERSION", "parameter": "GPS_TYPE"},
 ])
 def test_injecting_actuation_or_malformed_parameters_is_refused(payload):
-    with pytest.raises((ValueError, Exception)):
+    with pytest.raises(ValueError):
         # Includes Pydantic model validation and semantic .check().
         encode_bench_query(BenchQuery.model_validate(payload), 1)
 
@@ -88,7 +88,7 @@ def test_projector_only_accepts_parameters_from_matching_fc():
         codec = mavlink.MAVLink(BytesIO())
         codec.srcSystem, codec.srcComponent = system_id, 1
         raw = mavlink.MAVLink_param_value_message(
-            value, 420, 14, name.encode("ascii"), mavlink.MAV_PARAM_TYPE_REAL32
+            name.encode("ascii"), value, mavlink.MAV_PARAM_TYPE_REAL32, 420, 14
         ).pack(codec)
         p.push(raw)
     params = p.parameter_snapshot()
