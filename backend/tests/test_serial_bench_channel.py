@@ -50,6 +50,11 @@ async def test_serial_bench_request_is_opt_in_and_exactly_one_read_packet(monkey
             await manager.bench_request(vehicle_id, BenchQuery(query=BenchRequest.FC_VERSION))
         codec = mavlink.MAVLink(BytesIO())
         codec.srcSystem, codec.srcComponent = 1, 1
+        armed = mavlink.MAVLink_heartbeat_message(
+            2, 3, mavlink.MAV_MODE_FLAG_SAFETY_ARMED, 0, 3, 3).pack(codec)
+        assert manager.sessions[vehicle_id].projector.push(armed) == 1
+        with pytest.raises(ValueError, match="Fresh disarmed"):
+            await manager.bench_request(vehicle_id, BenchQuery(query=BenchRequest.FC_VERSION))
         heartbeat = mavlink.MAVLink_heartbeat_message(2, 3, 0, 0, 3, 3).pack(codec)
         assert manager.sessions[vehicle_id].projector.push(heartbeat) == 1
         result = await manager.bench_request(vehicle_id, BenchQuery(query=BenchRequest.FC_VERSION))
