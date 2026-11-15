@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import GeoMap, { type MapPoint } from "./GeoMap";
 import FlightInstruments from "./FlightInstruments";
 import UiIcon, { type IconName } from "./UiIcon";
+import SystemsPanel from "./SystemsPanel";
 import {
   connectBroker, connectCloud, connectUDP, connectTCP, connectSerial, disconnectLink, getHealth, getMissions,
   getFleetTelemetry, getObservedTrack, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
@@ -92,7 +93,6 @@ export default function App() {
   const [sysid, setSysid] = useState(1);
   const [cameraInput, setCameraInput] = useState("");
   const [cameraPages, setCameraPages] = useState<Record<string, string>>(restoredCameras);
-  const [showFlightVideo, setShowFlightVideo] = useState(false);
   useEffect(() => { setCameraInput(cameraPages[selected] ?? ""); }, [selected]);
 
   async function refresh() {
@@ -453,6 +453,8 @@ export default function App() {
             </div>
             <p className="panel-footnote">Only validated, fresh MAVLink telemetry is shown. Aircraft control is unavailable in this software release.</p>
           </div>}
+          {section === "FLIGHT" && <SystemsPanel telemetry={sample} vehicleId={selected}
+            cameraUrl={cameraUrl} onOpenVideo={() => navigate("VIDEO")}/>}
           {section === "PLAN" && <section className="float-panel plan-panel">
             <div className="panel-title">
               <h2>Survey planner</h2>
