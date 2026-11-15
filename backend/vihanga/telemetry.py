@@ -281,12 +281,14 @@ class LinkManager:
                     async for raw in ws:
                         if isinstance(raw, bytes):
                             session.projector.push(raw)
+                session.projector = MAVLinkProjector(session.projector.system_id)
                 session.state, session.error_code = "RECONNECTING", "CLOUD_VIEWER_CLOSED"
                 failures = max(failures, 1)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 # Do not expose relay address, token or user credentials.
+                session.projector = MAVLinkProjector(session.projector.system_id)
                 session.state, session.error_code = "RECONNECTING", "PRIVATE_CLOUD_UNAVAILABLE"
                 failures += 1
             # Exponential, bounded reconnect. Never automatically dispatch commands.
