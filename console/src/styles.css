@@ -483,4 +483,33 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible {
   .attitude-face,.compass-face{width:52px;height:52px}
   .instrument-name{font-size:7px}
 }
+/* Keep the precision widgets readable on narrower operator displays. */
+@media(max-width:1330px){
+  .plan-panel{width:340px}
+  .instrument-dock .dock-readouts>div{padding:6px 7px}
+  .instrument-dock .dock-readouts small{font-size:9px}
+  .instrument-dock .dock-readouts strong{font-size:16px}
+}
+@media(max-width:1000px){
+  .plan-panel{width:min(340px,calc(100% - 24px))}
+  .plan-panel .route-row{grid-template-columns:26px minmax(0,1fr) minmax(0,1fr) 53px;gap:5px}
+  .plan-panel .route-row input{font-size:10px}
+  .instrument-dock .primary-instruments{gap:8px}
+}
+@media(max-width:760px){
+  .instrument-dock .dock-readouts{grid-template-columns:1fr;gap:1px}
+  .instrument-dock .dock-readouts>div{min-height:0;padding:2px;border-right:0;gap:2px}
+  .instrument-dock .dock-readouts small{font-size:8px}
+  .instrument-dock .dock-readouts strong{font-size:12px}
+  .instrument-dock .primary-instruments{gap:4px}
+  .plan-panel .route-row label{font-size:8px}
+}
+@media(max-width:600px){
+  .plan-intro{padding:9px 12px 0}
+  .plan-panel .plan-stats{gap:0 8px;padding:4px 9px}
+  .plan-panel .route-row{padding:6px}
+  .instrument-dock .dock-readouts strong{font-size:11px}
+  .instrument-dock .dock-readouts small{font-size:7px}
+}
+
 @media(prefers-reduced-motion:reduce){button,input,select{transition:none}}
