@@ -34,6 +34,7 @@ export default function FlightInstruments({ telemetry }: Props) {
           {!attitudeOk && <div className="no-attitude">NO DATA</div>}
         </div>
         <div className="instrument-name">ATTITUDE</div>
+        <div className="instrument-values"><span>R {attitudeOk ? roll.toFixed(1) + "°" : "—"}</span><span>P {attitudeOk ? pitch.toFixed(1) + "°" : "—"}</span></div>
       </div>
       <div className="pfd-group">
         <div className={"compass-face " + (heading == null ? "invalid" : "")} title={heading == null ? "Heading unavailable" : "Heading " + heading.toFixed(0) + "°"}>
