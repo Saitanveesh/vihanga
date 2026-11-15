@@ -280,10 +280,19 @@ export default function App() {
       </aside>
       <aside className="fleetbar">
         <div className="fleetbar-head"><span>AIRCRAFT</span><strong>{vehicles.length}</strong></div>
-        <div className="fleet-search-note">Registered aircraft · live links shown separately</div>
+        <div className="fleet-search-note">Aircraft directory</div>
+        <div className="fleet-filters">
+          <input aria-label="Search aircraft" value={aircraftSearch} placeholder="Search ID or aircraft"
+            onChange={e => setAircraftSearch(e.target.value)}/>
+          <div className="filter-buttons">
+            {(["ALL","LIVE","OFFLINE"] as const).map(filter => <button type="button" key={filter}
+              className={aircraftFilter === filter ? "selected" : ""}
+              onClick={() => setAircraftFilter(filter)}>{filter === "ALL" ? "All" : filter === "LIVE" ? "Online" : "Offline"}</button>)}
+          </div>
+        </div>
         <div className="aircraft-items">
           {vehicles.length === 0 && <p className="sidebar-empty">No aircraft registered. Use FLEET to add one.</p>}
-          {vehicles.map(v => {
+          {fleetMatches.map(v => {
             const item = readings[v.vehicle_id];
             return <button key={v.vehicle_id} type="button"
               onClick={() => setSelected(v.vehicle_id)}
@@ -304,9 +313,10 @@ export default function App() {
       <div className="main-area">
         <header className="toolbar">
           <div className="toolbar-leading">
-            <span className="product-label">GROUND OPERATIONS</span>
+            <span className="product-label">VIHANGA / OPERATIONS</span>
             <span className="toolbar-separator">/</span>
-            <strong>{section}</strong>
+            <strong>{section === "PLAN" ? "MISSION PLANNING" : section}</strong>
+            <span className="toolbar-subtitle">{active?.label || "No aircraft selected"}</span>
           </div>
           <div className="toolbar-right">
             <span className={"link-chip " + (sample?.status === "LIVE" ? "ok" : "")}>
@@ -314,18 +324,22 @@ export default function App() {
             </span>
             <span className="vehicle-chip">{active?.vehicle_id || "NO AIRCRAFT"}</span>
             <button className="toolbar-button accent" onClick={() => setConnectOpen(true)}
-              disabled={!selected}>Connect</button>
+              disabled={!selected} title="Connect authenticated receive-only telemetry">Connect ↗</button>
           </div>
         </header>
         <div className="map-stage">
           <GeoMap polygon={section === "PLAN" ? polygon : []} route={section === "PLAN" || section === "HISTORY" ? waypoints : []}
             position={location} drawing={section === "PLAN" && drawMode !== "NONE"}
-            basemap={basemap} centerSignal={centerSignal} onMapClick={clicked}/>
+            basemap={basemap} centerSignal={centerSignal} fitSignal={fitSignal}
+            onMapClick={clicked} onVertexMove={moveVertex}/>
           <div className="map-tools">
             <button className={basemap === "satellite" ? "chosen" : ""} onClick={() => setBasemap("satellite")}>Satellite</button>
             <button className={basemap === "streets" ? "chosen" : ""} onClick={() => setBasemap("streets")}>Streets</button>
             <button disabled={!location} title={!location ? "No fresh GPS fix" : "Center selected aircraft"}
-              onClick={() => setCenterSignal(x => x + 1)}>Locate</button>
+              onClick={() => setCenterSignal(x => x + 1)}>Aircraft</button>
+            <button disabled={waypoints.length < 2 && polygon.length < 3}
+              title="Fit survey or route to map"
+              onClick={() => setFitSignal(x => x + 1)}>Fit route</button>
           </div>
           {section === "FLIGHT" && <div className="float-panel flight-summary">
             <div className="panel-title"><h2>Aircraft status</h2><span>{active?.label || "Not selected"}</span></div>
