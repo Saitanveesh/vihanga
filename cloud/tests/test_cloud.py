@@ -256,3 +256,43 @@ def test_slow_viewer_overflow_timeout_and_task_cleanup(monkeypatch):
             await asyncio.gather(*tasks, return_exceptions=True)
 
     asyncio.run(scenario())
+
+
+def test_versioned_config_requires_role_expiry(monkeypatch):
+    import json
+    from vihanga_cloud.app import from_environment
+
+    identity = identities()[0]
+    entry = {
+        "vehicle_id": identity.vehicle_id, "system_id": identity.system_id,
+        "organization": identity.organization, "device_token_sha256": identity.device_token_hash,
+        "viewer_token_sha256": identity.viewer_token_hash,
+    }
+    config = {"version": 2, "aircraft": [entry]}
+    monkeypatch.setenv("VIHANGA_CLOUD_AIRCRAFT_JSON", json.dumps(config))
+    with pytest.raises(RuntimeError, match="Invalid Vihanga"):
+        from_environment()
+    entry.update(device_expires_at=1, viewer_expires_at=253402300799)
+    monkeypatch.setenv("VIHANGA_CLOUD_AIRCRAFT_JSON", json.dumps(config))
+    broker = from_environment()
+    assert broker.authorize("TEST-001", "D" * 40) is None
+    assert broker.authorize("TEST-001", "V" * 40, viewer=True) is not None
+
+
+def test_already_connected_device_and_viewer_expire():
+    import time
+
+    expiry = int(time.time()) + 2
+    identity = replace(identities()[0], device_expires_at=expiry, viewer_expires_at=expiry)
+    broker = Broker([identity])
+    with TestClient(create_app(broker)) as client:
+        with client.websocket_connect("/ws/v1/view/TEST-001",
+                                      headers={"Authorization": "Bearer " + "V" * 40}) as viewer:
+            with client.websocket_connect("/ws/v1/device/TEST-001",
+                                          headers={"X-Vihanga-Device-Token": "D" * 40}) as device:
+                for socket in (device, viewer):
+                    with pytest.raises(WebSocketDisconnect) as closed:
+                        socket.receive_bytes()
+                    assert closed.value.code == 4401
+    slot = broker.slots["TEST-001"]
+    assert not slot.device_connected and not slot.viewers
