@@ -12,6 +12,7 @@ from enum import Enum
 from io import BytesIO
 from math import isfinite
 import secrets
+import hmac
 import time
 from typing import Callable
 from uuid import UUID
@@ -164,9 +165,11 @@ class Authority:
         if canonical_id in self.commands:
             raise Refused("DUPLICATE_COMMAND_ID")
         lease = self.leases.get(vehicle)
-        if (not lease or lease.expires_at <= now or lease.token != lease_token or
+        if (not lease or lease.expires_at <= now or not hmac.compare_digest(lease.token, lease_token) or
                 lease.pilot_identity != pilot or vehicle != health.vehicle_id):
             raise Refused("NO_ACTIVE_PILOT_LEASE")
+        if not isinstance(action, Action):
+            raise Refused("UNKNOWN_COMMAND_ACTION")
         if sequence <= lease.last_sequence or sequence > lease.last_sequence + 1000:
             raise Refused("REPLAY_OR_INVALID_SEQUENCE")
         if not now < deadline <= now + 5:
@@ -263,7 +266,7 @@ class Authority:
             # Takeoff requires actual positive altitude from FC, not merely
             # its acceptance of a MAV_CMD_NAV_TAKEOFF.
             Action.TAKEOFF: (health.armed is True and health.altitude_m is not None and
-                             health.altitude_m >= max(1.0, cmd.altitude_m * .5)),
+                             health.altitude_m >= max(1.0, (cmd.altitude_m or 0) * .5)),
         }[cmd.action]
         if not observed:
             return False
