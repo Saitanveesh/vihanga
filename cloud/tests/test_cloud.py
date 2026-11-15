@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 from dataclasses import replace
 from io import BytesIO
 
@@ -114,3 +115,44 @@ def test_broker_rejects_reused_tokens_even_across_organizations_and_roles():
     with pytest.raises(ValueError, match="Credential digests must be unique"):
         Broker([replace(first, viewer_token_hash=first.device_token_hash)])
     assert len(Broker([first, second]).slots) == 2
+
+
+def test_twelve_concurrent_device_viewer_streams_are_vehicle_isolated():
+    """Concurrent protocol sockets, not twelve real flight-tested aircraft."""
+    n = 12
+    broker = Broker(identities(n))
+    with TestClient(create_app(broker)) as client, ExitStack() as stack:
+        viewers, devices = {}, {}
+        for i in range(n):
+            vehicle = f"TEST-{i+1:03}"
+            token = chr(86 + i) * 40
+            viewers[vehicle] = stack.enter_context(client.websocket_connect(
+                f"/ws/v1/view/{vehicle}",
+                headers={"Authorization": "Bearer " + token}))
+        for i in range(n):
+            vehicle = f"TEST-{i+1:03}"
+            token = chr(68 + i) * 40
+            devices[vehicle] = stack.enter_context(client.websocket_connect(
+                f"/ws/v1/device/{vehicle}",
+                headers={"X-Vihanga-Device-Token": token}))
+
+        # Every vehicle's wire packet differs by FC SYSID. A cross-routed
+        # packet would fail the exact byte comparison at the viewer.
+        for i in range(n):
+            vehicle = f"TEST-{i+1:03}"
+            devices[vehicle].send_bytes(frame(hb(), sysid=i+1))
+        for i in range(n):
+            vehicle = f"TEST-{i+1:03}"
+            assert viewers[vehicle].receive_bytes() == frame(hb(), sysid=i+1)
+        for i in range(n):
+            vehicle = f"TEST-{i+1:03}"
+            devices[vehicle].send_bytes(frame(att(), sysid=i+1))
+        for i in range(n):
+            vehicle = f"TEST-{i+1:03}"
+            assert viewers[vehicle].receive_bytes() == frame(att(), sysid=i+1)
+            status = broker.slots[vehicle].status()
+            assert status["status"] == "LIVE", status
+            assert status["frames_received"] == 2
+            assert status["viewers"] == 1
+            assert status["flight_control_enabled"] is False
+    assert all(slot.status()["status"] == "OFFLINE" for slot in broker.slots.values())
