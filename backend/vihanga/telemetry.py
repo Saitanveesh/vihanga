@@ -114,6 +114,7 @@ class MAVLinkProjector:
     track: deque = field(default_factory=lambda: deque(maxlen=1500))
     last_track_at: float = -1.0
     track_distance_m: float = 0.0
+    recent_frames: deque = field(default_factory=lambda: deque(maxlen=512))
 
     def _set(self, key, value, now):
         self.fields[key] = (value, now)
@@ -138,6 +139,7 @@ class MAVLinkProjector:
             typ = msg.get_type()
             self.count[typ] += 1
             self.last_frame_at = now
+            self.recent_frames.append(now)
             accepted += 1
             if typ == "HEARTBEAT":
                 self._set("heartbeat", True, now)
@@ -152,6 +154,13 @@ class MAVLinkProjector:
                 if all(isfinite(v) for v in vals) and abs(vals[0]) <= 180 and abs(vals[1]) <= 90:
                     for name, value in zip(("roll_deg", "pitch_deg", "yaw_deg"), vals):
                         self._set(name, round(value, 2), now)
+            elif typ == "GPS2_RAW":
+                fix2 = int(msg.fix_type)
+                if 0 <= fix2 <= 6:
+                    self._set("gps2_fix_type", fix2, now)
+                sat2 = int(msg.satellites_visible)
+                if 0 <= sat2 <= 100:
+                    self._set("gps2_satellites", sat2, now)
             elif typ == "GPS_RAW_INT":
                 self._set("gps_fix_type", int(msg.fix_type), now)
                 if int(msg.fix_type) < 3:
@@ -178,11 +187,18 @@ class MAVLinkProjector:
                 if -10000 <= alt <= 100000:
                     self._set("relative_alt_m", round(alt, 2), now)
             elif typ == "SYS_STATUS":
+                current = int(msg.current_battery)
+                if 0 <= current < 32767:
+                    self._set("battery_current_a", round(current / 100, 2), now)
                 if 0 <= msg.voltage_battery < 65535:
                     self._set("voltage_v", round(msg.voltage_battery / 1000, 2), now)
                 if 0 <= msg.battery_remaining <= 100:
                     self._set("battery_pct", int(msg.battery_remaining), now)
             elif typ == "VFR_HUD":
+                if isfinite(msg.airspeed) and 0 <= msg.airspeed <= 400:
+                    self._set("airspeed_mps", round(msg.airspeed, 2), now)
+                if 0 <= int(msg.throttle) <= 100:
+                    self._set("throttle_pct", int(msg.throttle), now)
                 if isfinite(msg.groundspeed) and 0 <= msg.groundspeed <= 400:
                     self._set("groundspeed_mps", round(msg.groundspeed, 2), now)
                 if isfinite(msg.climb) and abs(msg.climb) <= 150:
@@ -209,14 +225,21 @@ class MAVLinkProjector:
             "heartbeat_fresh": fresh("heartbeat") is True,
             "attitude_fresh": roll is not None and pitch is not None,
             "gps_fix_type": fix, "satellites": fresh("satellites", 5),
+            "gps2_fix_type": fresh("gps2_fix_type", 5),
+            "gps2_satellites": fresh("gps2_satellites", 5),
             "latitude": fresh("latitude_raw") if fix is not None and fix >= 3 else None,
             "longitude": fresh("longitude_raw") if fix is not None and fix >= 3 else None,
             "roll_deg": roll, "pitch_deg": pitch, "yaw_deg": fresh("yaw_deg"),
             "mode": fresh("mode"), "armed": fresh("armed"),
             "relative_alt_m": fresh("relative_alt_m"),
             "groundspeed_mps": fresh("groundspeed_mps"),
+            "airspeed_mps": fresh("airspeed_mps"),
+            "throttle_pct": fresh("throttle_pct"),
             "climb_mps": fresh("climb_mps"),
             "voltage_v": fresh("voltage_v"), "battery_pct": fresh("battery_pct"),
+            "battery_current_a": fresh("battery_current_a"),
+            "frame_rate_5s_hz": round(sum(
+                1 for stamp in self.recent_frames if 0 <= now - stamp <= 5) / 5, 2),
             "frames_total": sum(self.count.values()),
             "message_counts": dict(self.count), "rejected_frames": self.invalid_frames,
             "age_ms": round((now - self.last_frame_at) * 1000) if self.last_frame_at >= 0 else None,
