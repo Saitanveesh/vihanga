@@ -236,7 +236,7 @@ export default function App() {
         <button className="add-aircraft" onClick={() => navigate("FLEET")}>+ Register aircraft</button>
         <div className="fleetbar-foot">
           <div>ACTIVE STREAMS <b>{liveCount}</b></div>
-          <div>DATA SOURCE <b>REAL MAVLINK ONLY</b></div>
+          <div>OPERATIONS API <b>{health ? "AVAILABLE" : "UNAVAILABLE"}</b></div>
         </div>
       </aside>
       <div className="main-area">
