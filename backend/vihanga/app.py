@@ -21,7 +21,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from vihanga.survey import router as survey_router
-from vihanga.operator_contract import BenchQuery, catalog, encode_bench_query
+from vihanga.operator_contract import BenchQuery, catalog
 from vihanga.telemetry import BrokerConnect, CloudConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -315,8 +315,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         if session is None or session.kind != "LOCAL_SERIAL_RECEIVE":
             raise HTTPException(status_code=409, detail="Local USB serial connection required")
         try:
-            packet = encode_bench_query(payload, session.projector.system_id)
-            result = await links.bench_request(vehicle_id, packet)
+            result = await links.bench_request(vehicle_id, payload)
         except ValueError as ex:
             raise HTTPException(status_code=409, detail=str(ex)) from ex
         return {**result, "query": payload.query.value}
