@@ -93,6 +93,10 @@ class LanFanout:
                             task.cancel()
                     await asyncio.gather(read_task, send_task, return_exceptions=True)
                 if read_task in done:
+                    try:
+                        read_task.result()
+                    except ConnectionClosed:
+                        break
                     # Viewer-originated MAVLink frames or application messages
                     # must never become a flight command or UART write.
                     self.counters["viewer_payload_rejected"] += 1
