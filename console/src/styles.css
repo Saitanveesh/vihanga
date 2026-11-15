@@ -155,3 +155,8 @@ body{letter-spacing:.05px}
 .transport-tabs.five{display:grid;grid-template-columns:1.4fr 1.2fr .7fr .7fr .7fr;gap:3px}
 .transport-tabs.five button{font-size:9px;padding:11px 2px;min-width:0}
 @media(max-width:460px){.transport-tabs.five{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.transport-tabs.five button{font-size:10px}}
+
+.connection-session{margin:12px 16px 0;padding:12px;border:1px solid #547380;border-radius:8px;background:#1c303c;color:#d8e7ed;display:flex;flex-direction:column;gap:5px}
+.connection-session strong{font-size:12px}
+.connection-session button{margin-top:5px;background:#304b57;border:1px solid #74909b;color:#f0f7f9;border-radius:6px;padding:9px;font-weight:700;cursor:pointer}
+.connection-session button:disabled{opacity:.5;cursor:not-allowed}
