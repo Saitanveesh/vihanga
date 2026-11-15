@@ -455,8 +455,12 @@ export default function App() {
               onClick={() => setFitSignal(x => x + 1)}>Fit route</button>
           </div>
           {(section === "FLIGHT" || section === "PLAN") && <div className="operation-ribbon" role="toolbar" aria-label="Planning tools">
-            <button onClick={() => { navigate("PLAN"); setDrawMode("POLYGON"); }} title="Draw survey boundary"><UiIcon name="plan" size={15}/> <span>Survey</span></button>
-            <button onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints"><UiIcon name="map" size={15}/> <span>Waypoints</span></button>
+            <button className={section === "PLAN" && drawMode === "POLYGON" ? "active" : ""}
+              aria-pressed={section === "PLAN" && drawMode === "POLYGON"}
+              onClick={() => { navigate("PLAN"); setDrawMode("POLYGON"); }} title="Draw survey boundary"><UiIcon name="plan" size={15}/> <span>Survey</span></button>
+            <button className={section === "PLAN" && drawMode === "WAYPOINT" ? "active" : ""}
+              aria-pressed={section === "PLAN" && drawMode === "WAYPOINT"}
+              onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints"><UiIcon name="map" size={15}/> <span>Waypoints</span></button>
             <button onClick={() => navigate("HISTORY")} title="View stored mission drafts"><UiIcon name="history" size={15}/> <span>Routes</span></button>
             <span className="ribbon-divider"/>
             <span className="ribbon-hint" title="Routes are drafts; aircraft actuation is not available"><UiIcon name="lock" size={13}/> Planning only</span>
@@ -567,7 +571,7 @@ export default function App() {
                 <strong>Waypoints <span className="route-total">{waypoints.length}</span></strong>
                 <span>{openedMission ? "SAVED ROUTE" : "DRAFT ROUTE"}</span>
               </div>
-              <div className="route-scroll">
+              <div className="route-scroll" aria-label="Mission waypoint list">
                 {waypoints.slice(0,100).map((p,i) => <div
                   className={"route-row" + (selectedWaypoint === i ? " picked" : "")} key={i}>
                   <button type="button" className="waypoint-index"
