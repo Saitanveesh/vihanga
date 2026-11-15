@@ -1,7 +1,6 @@
 import asyncio
 from io import BytesIO
 import socket
-from contextlib import suppress
 
 import pytest
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
@@ -152,6 +151,8 @@ async def test_parallel_primary_udp_and_backup_tcp_require_manual_evidence_gated
         await asyncio.sleep(.05)
         assert mgr.snapshot(vehicle)["status"] == "LIVE"
 
+        with pytest.raises(ValueError, match="different transport"):
+            await mgr.start_backup(UDPConnect(vehicle_id=vehicle, port=udp_port+1, fc_system_id=1))
         await mgr.start_backup(TCPConnect(vehicle_id=vehicle, port=tcp_port, fc_system_id=1))
         await asyncio.sleep(.15)
         before = mgr.snapshot(vehicle)
@@ -161,7 +162,7 @@ async def test_parallel_primary_udp_and_backup_tcp_require_manual_evidence_gated
         assert before["backup_transport"] == "LOCAL_TCP_RECEIVE"
         assert before["flight_control_enabled"] is False
 
-        with pytest.raises(ValueError, match="different transport"):
+        with pytest.raises(ValueError, match="existing backup receiver"):
             await mgr.start_backup(UDPConnect(vehicle_id=vehicle, port=udp_port+1, fc_system_id=1))
 
         promoted = mgr.select_source(vehicle, "BACKUP")
