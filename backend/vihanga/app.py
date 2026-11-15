@@ -18,6 +18,8 @@ import sqlite3
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
+from vihanga.survey import router as survey_router
+from vihanga.telemetry import CloudConnect, UDPConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -92,29 +94,74 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             revision_sha256 TEXT NOT NULL, created_at TEXT NOT NULL
         )""")
 
-    app = FastAPI(title="Vihanga standalone operations API", version="0.1.0")
+    app = FastAPI(title="Vihanga standalone operations API", version="0.2.0")
+    links = LinkManager()
+    app.state.links = links
+    app.include_router(survey_router)
+
+    def require_vehicle(vehicle_id: str) -> None:
+        with db() as con:
+            exists = con.execute("SELECT 1 FROM vehicles WHERE vehicle_id=?", (vehicle_id,)).fetchone()
+        if exists is None:
+            raise HTTPException(status_code=404, detail="Aircraft not registered")
+
+    @app.post("/api/v1/links/cloud")
+    async def connect_cloud(request: CloudConnect):
+        require_vehicle(request.vehicle_id)
+        try:
+            return await links.start_cloud(request)
+        except ValueError as ex:
+            raise HTTPException(status_code=422, detail=str(ex)) from ex
+
+    @app.post("/api/v1/links/udp")
+    async def connect_udp(request: UDPConnect):
+        require_vehicle(request.vehicle_id)
+        try:
+            return await links.start_udp(request)
+        except ValueError as ex:
+            raise HTTPException(status_code=422, detail=str(ex)) from ex
+        except OSError as ex:
+            raise HTTPException(status_code=409, detail="Local UDP port unavailable") from ex
+
+    @app.delete("/api/v1/links/{vehicle_id}")
+    async def disconnect_link(vehicle_id: str):
+        require_vehicle(vehicle_id)
+        await links.stop(vehicle_id)
+        return links.snapshot(vehicle_id)
+
+    @app.get("/api/v1/telemetry/{vehicle_id}")
+    async def telemetry(vehicle_id: str):
+        require_vehicle(vehicle_id)
+        return links.snapshot(vehicle_id)
+
+    @app.on_event("shutdown")
+    async def stop_links():
+        for vehicle_id in tuple(links.sessions):
+            await links.stop(vehicle_id)
+
 
     @app.get("/api/v1/health")
     def health():
         return {"service": "vihanga-standalone", "status": "ok",
                 "deployment": "LOCAL_DEVELOPMENT", "physical_flight_control": False,
-                "live_vehicle_stream": False}
+                "live_vehicle_stream": any(links.snapshot(i)["status"] == "LIVE" for i in links.sessions)}
 
     @app.get("/api/v1/capabilities")
     def capabilities():
         return {
             "mission_draft": True, "aircraft_registration": True,
-            "live_telemetry": False, "cloud_command_dispatch": False,
+            "live_telemetry": True, "cloud_command_dispatch": False,
             "mission_upload": False, "remote_arm": False,
             "takeoff": False, "land": False, "rtl": False,
-            "reason": "No authenticated edge agent or safety-qualified FC connection exists"
+            "reason": "Real read-only private WSS and localhost SITL UDP available. No flight-control command transport."
         }
 
     @app.get("/api/v1/vehicles")
     def vehicles():
         with db() as con:
             rows = con.execute("SELECT * FROM vehicles ORDER BY created_at, vehicle_id").fetchall()
-            return [{**dict(row), "link_state": "OFFLINE", "control_authorized": False}
+            return [{**dict(row), "link_state": links.snapshot(row["vehicle_id"])["status"],
+                     "control_authorized": False}
                     for row in rows]
 
     @app.post("/api/v1/vehicles", status_code=201)

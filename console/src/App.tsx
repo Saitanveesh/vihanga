@@ -1,270 +1,442 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import GeoMap, { type MapPoint } from "./GeoMap";
 import {
-  getHealth, getMissions, getVehicles, registerVehicle, saveMission,
-  type Health, type Mission, type Vehicle, type VehicleCreate
+  connectCloud, connectUDP, disconnectLink, getHealth, getMissions,
+  getTelemetry, getVehicles, previewSurvey, registerVehicle, saveMission,
+  type Health, type Mission, type SurveyPreview, type Telemetry,
+  type Vehicle, type VehicleCreate, type Waypoint
 } from "./api";
 
-type View = "FLIGHT" | "MISSIONS" | "FLEET" | "VISION" | "LINK" | "OPERATIONS" | "SECURITY";
-type PointInput = { latitude: string; longitude: string; altitude_m: string };
-const sections: { name: View; glyph: string }[] = [
-  { name: "FLIGHT", glyph: "⌁" }, { name: "MISSIONS", glyph: "◇" },
-  { name: "FLEET", glyph: "▦" }, { name: "VISION", glyph: "◉" },
-  { name: "LINK", glyph: "⇆" }, { name: "OPERATIONS", glyph: "≡" },
-  { name: "SECURITY", glyph: "▣" }
+type Section = "FLIGHT" | "PLAN" | "FLEET" | "LINK" | "HISTORY" | "VIDEO";
+type DrawMode = "NONE" | "POLYGON" | "WAYPOINT";
+const sections: { label: Section; icon: string }[] = [
+  { label: "FLIGHT", icon: "◈" }, { label: "PLAN", icon: "⌖" },
+  { label: "FLEET", icon: "▦" }, { label: "LINK", icon: "⇄" },
+  { label: "HISTORY", icon: "◷" }, { label: "VIDEO", icon: "▣" }
 ];
-const emptyPoint = (): PointInput => ({ latitude: "", longitude: "", altitude_m: "30" });
+
+function value(n: number | null | undefined, decimals = 1) {
+  return n == null ? "—" : n.toFixed(decimals);
+}
+function linkLabel(status?: string) {
+  return status === "LIVE" ? "LIVE TELEMETRY" :
+    status === "PARTIAL" ? "PARTIAL TELEMETRY" :
+    status === "STALE" ? "STALE DATA" :
+    status === "CONNECTING" ? "CONNECTING" :
+    status === "WAITING_FOR_FRAMES" ? "AWAITING MAVLINK" :
+    status === "ERROR" ? "LINK ERROR" : "OFFLINE";
+}
+const initialVehicle: VehicleCreate = {
+  vehicle_id: "", label: "", autopilot: "ARDUPILOT", interface: "UART"
+};
 
 export default function App() {
-  const [view, setView] = useState<View>("FLIGHT");
-  const [health, setHealth] = useState<Health | null>(null);
+  const [section, setSection] = useState<Section>("FLIGHT");
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
+  const [health, setHealth] = useState<Health | null>(null);
   const [selected, setSelected] = useState("");
-  const [error, setError] = useState("");
+  const [readings, setReadings] = useState<Record<string, Telemetry>>({});
+  const [alert, setAlert] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const [newVehicle, setNewVehicle] = useState<VehicleCreate>({
-    vehicle_id: "", label: "", autopilot: "ARDUPILOT", interface: "UART"
-  });
+  const [basemap, setBasemap] = useState<"satellite" | "streets">("satellite");
+  const [centerSignal, setCenterSignal] = useState(0);
+
+  const [vehicleForm, setVehicleForm] = useState<VehicleCreate>(initialVehicle);
+  const [drawMode, setDrawMode] = useState<DrawMode>("NONE");
+  const [polygon, setPolygon] = useState<MapPoint[]>([]);
+  const [manual, setManual] = useState<Waypoint[]>([]);
+  const [survey, setSurvey] = useState<SurveyPreview | null>(null);
+  const [spacing, setSpacing] = useState(20);
+  const [bearing, setBearing] = useState(0);
+  const [altitude, setAltitude] = useState(35);
   const [missionTitle, setMissionTitle] = useState("");
-  const [waypoints, setWaypoints] = useState<PointInput[]>([emptyPoint(), emptyPoint()]);
+  const [openedMission, setOpenedMission] = useState<Mission | null>(null);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [linkType, setLinkType] = useState<"CLOUD" | "UDP">("CLOUD");
+  const [origin, setOrigin] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [port, setPort] = useState(14550);
+  const [sysid, setSysid] = useState(1);
+  const [cameraInput, setCameraInput] = useState("");
+  const [cameraUrl, setCameraUrl] = useState("");
 
   async function refresh() {
     try {
-      const [h, v, m] = await Promise.all([getHealth(), getVehicles(), getMissions()]);
-      setHealth(h);
+      const [v, m, h] = await Promise.all([getVehicles(), getMissions(), getHealth()]);
       setVehicles(v);
       setMissions(m);
-      setSelected(current => current || (v[0]?.vehicle_id || ""));
-      setError("");
-    } catch (exc) {
+      setHealth(h);
+      setSelected(prev => v.some(x => x.vehicle_id === prev) ? prev : v[0]?.vehicle_id ?? "");
+    } catch (e) {
       setHealth(null);
-      setError(exc instanceof Error ? exc.message : String(exc));
+      setAlert(e instanceof Error ? e.message : String(e));
     }
   }
   useEffect(() => { void refresh(); }, []);
 
-  async function addVehicle(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      await registerVehicle({ ...newVehicle, vehicle_id: newVehicle.vehicle_id.trim().toUpperCase(), label: newVehicle.label.trim() });
-      setNotice("Aircraft registered. Connection remains OFFLINE until an authenticated edge link is commissioned.");
-      setNewVehicle({ vehicle_id: "", label: "", autopilot: "ARDUPILOT", interface: "UART" });
-      await refresh();
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : String(exc));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function createDraft(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      if (!selected) throw new Error("Register and select an aircraft first.");
-      const points = waypoints.map(p => ({
-        latitude: Number(p.latitude), longitude: Number(p.longitude), altitude_m: Number(p.altitude_m)
+  useEffect(() => {
+    if (vehicles.length === 0) { setReadings({}); return; }
+    let mounted = true;
+    async function poll() {
+      const pairs = await Promise.all(vehicles.map(async v => {
+        try { return [v.vehicle_id, await getTelemetry(v.vehicle_id)] as const; }
+        catch { return null; }
       }));
-      if (waypoints.some(p => p.latitude.trim() === "" || p.longitude.trim() === "" || p.altitude_m.trim() === "") ||
-          points.some(p => !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude) || !Number.isFinite(p.altitude_m))) {
-        throw new Error("Enter valid numeric coordinates and altitude for every waypoint.");
+      if (mounted) {
+        const next: Record<string, Telemetry> = {};
+        pairs.forEach(pair => { if (pair) next[pair[0]] = pair[1]; });
+        setReadings(next);
       }
-      const saved = await saveMission({ vehicle_id: selected, title: missionTitle.trim(), waypoints: points });
-      setNotice("Mission draft saved as revision " + saved.revision_sha256.slice(0, 12) + ". Not uploaded to any aircraft.");
-      setMissionTitle("");
-      setWaypoints([emptyPoint(), emptyPoint()]);
-      await refresh();
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : String(exc));
-    } finally {
-      setBusy(false);
     }
-  }
-
-  function updatePoint(index: number, field: keyof PointInput, value: string) {
-    setWaypoints(previous => previous.map((p, i) => i === index ? { ...p, [field]: value } : p));
-  }
+    void poll();
+    const handle = window.setInterval(() => void poll(), 1600);
+    return () => { mounted = false; window.clearInterval(handle); };
+  }, [vehicles]);
 
   const active = vehicles.find(v => v.vehicle_id === selected);
-  const draftsForAircraft = missions.filter(m => m.vehicle_id === selected);
+  const sample = readings[selected];
+  const location = sample?.latitude != null && sample.longitude != null
+    ? { latitude: sample.latitude, longitude: sample.longitude } : null;
+  const waypoints = openedMission?.waypoints ?? survey?.waypoints ?? manual;
+  const displayedMissionList = missions.filter(m => m.vehicle_id === selected);
+  const liveCount = useMemo(
+    () => Object.values(readings).filter(t => t.status === "LIVE").length, [readings]
+  );
+
+  function notify(text: string) { setNotice(text); setAlert(""); }
+  function fail(error: unknown) {
+    setNotice("");
+    setAlert(error instanceof Error ? error.message : String(error));
+  }
+  function navigate(page: Section) {
+    setSection(page);
+    setDrawMode("NONE");
+    setAlert(""); setNotice("");
+  }
+  function clicked(point: MapPoint) {
+    if (section !== "PLAN") return;
+    setOpenedMission(null);
+    setSurvey(null);
+    if (drawMode === "POLYGON") setPolygon(old => [...old, point]);
+    if (drawMode === "WAYPOINT") setManual(old => [...old, { ...point, altitude_m: altitude }]);
+  }
+
+  async function addAircraft(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await registerVehicle({
+        ...vehicleForm, vehicle_id: vehicleForm.vehicle_id.trim().toUpperCase(),
+        label: vehicleForm.label.trim()
+      });
+      setVehicleForm(initialVehicle);
+      await refresh();
+      notify("Aircraft registered. It remains OFFLINE until a real link is established.");
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  }
+  async function preview() {
+    setBusy(true);
+    try {
+      const result = await previewSurvey({
+        polygon, spacing_m: spacing, angle_deg: bearing, altitude_m: altitude
+      });
+      setSurvey(result);
+      setManual([]);
+      setOpenedMission(null);
+      setDrawMode("NONE");
+      notify("Generated " + result.lane_count + " survey lanes. Review route and transitions before saving.");
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  }
+  async function saveDraft(event: FormEvent) {
+    event.preventDefault();
+    const route = survey?.waypoints ?? manual;
+    if (!selected) return fail(new Error("Select a registered aircraft"));
+    if (route.length < 2) return fail(new Error("Add two waypoints or preview a survey polygon"));
+    setBusy(true);
+    try {
+      const draft = await saveMission({ vehicle_id: selected, title: missionTitle.trim(), waypoints: route });
+      setOpenedMission(draft);
+      setSurvey(null); setPolygon([]); setManual([]); setMissionTitle("");
+      setDrawMode("NONE");
+      await refresh();
+      notify("Saved draft " + draft.revision_sha256.slice(0, 12) + ". No flight-controller upload occurred.");
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  }
+  async function startLink(event: FormEvent) {
+    event.preventDefault();
+    if (!selected) return fail(new Error("Register and select an aircraft first"));
+    setBusy(true);
+    try {
+      const result = linkType === "CLOUD"
+        ? await connectCloud({ vehicle_id: selected, origin, username, password, fc_system_id: sysid })
+        : await connectUDP({ vehicle_id: selected, port, fc_system_id: sysid });
+      setReadings(old => ({ ...old, [selected]: result }));
+      setConnectOpen(false);
+      setPassword("");
+      notify(linkType === "CLOUD"
+        ? "Cloud session requested. LIVE status requires real FC heartbeat and attitude packets."
+        : "Local UDP receiver bound to 127.0.0.1:" + port + ". Awaiting real SITL MAVLink packets.");
+    } catch (e) { fail(e); } finally { setBusy(false); setPassword(""); }
+  }
+  async function stopLink() {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const result = await disconnectLink(selected);
+      setReadings(old => ({ ...old, [selected]: result }));
+      notify("Aircraft telemetry receiver disconnected.");
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  }
+  function setVideo(event: FormEvent) {
+    event.preventDefault();
+    try {
+      const parsed = new URL(cameraInput);
+      if (parsed.protocol !== "https:" || !parsed.hostname.toLowerCase().endsWith(".ts.net")
+          || parsed.username || parsed.password) {
+        throw new Error("For development, camera URL must be a private HTTPS *.ts.net endpoint");
+      }
+      setCameraUrl(parsed.href);
+      notify("Camera page selected. Video availability depends on the actual stream endpoint.");
+    } catch (e) { fail(e); }
+  }
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brandmark">V</div>
-          <div><strong>VIHANGA</strong><small>GROUND CONTROL SYSTEM</small></div>
-        </div>
-        <div className="group-label">OPERATIONS</div>
-        <nav aria-label="Primary navigation">
-          {sections.map(item => (
-            <button type="button" key={item.name} className={view === item.name ? "nav active" : "nav"}
-              onClick={() => { setView(item.name); setNotice(""); setError(""); }}>
-              <span className="navicon">{item.glyph}</span>{item.name}
-            </button>
-          ))}
+    <div className="workspace">
+      <aside className="rail">
+        <div className="identity"><span>V</span><b>VIHANGA</b></div>
+        <nav aria-label="Workspaces">
+          {sections.map(item => <button key={item.label} type="button"
+            className={"rail-item " + (section === item.label ? "selected" : "")}
+            onClick={() => navigate(item.label)} aria-current={section === item.label ? "page" : undefined}>
+            <span className="rail-icon">{item.icon}</span><small>{item.label}</small>
+          </button>)}
         </nav>
-        <div className="sidebottom">
-          <div className="dim-label">DEPLOYMENT PROFILE</div>
-          <div className="side-status"><span className="status-dot amber" /> LOCAL DEVELOPMENT</div>
-          <p>No flight-control capability is active in this build.</p>
-          <span className="version">VIHANGA STANDALONE · 0.1.0</span>
+        <div className="rail-foot">GCS / 0.2</div>
+      </aside>
+      <aside className="fleetbar">
+        <div className="fleetbar-head"><span>AIRCRAFT</span><strong>{vehicles.length}</strong></div>
+        <div className="fleet-search-note">Registered aircraft · live links shown separately</div>
+        <div className="aircraft-items">
+          {vehicles.length === 0 && <p className="sidebar-empty">No aircraft registered. Use FLEET to add one.</p>}
+          {vehicles.map(v => {
+            const item = readings[v.vehicle_id];
+            return <button key={v.vehicle_id} type="button"
+              onClick={() => setSelected(v.vehicle_id)}
+              className={"aircraft-item " + (selected === v.vehicle_id ? "current" : "")}>
+              <div className="aircraft-icon">✈</div><div className="aircraft-info">
+                <strong>{v.label}</strong><span>{v.vehicle_id}</span>
+                <small className={item?.status === "LIVE" ? "working" : ""}>{linkLabel(item?.status)}</small>
+              </div><span className={"aircraft-dot " + (item?.status === "LIVE" ? "online" : "")}/>
+            </button>;
+          })}
+        </div>
+        <button className="add-aircraft" onClick={() => navigate("FLEET")}>+ Register aircraft</button>
+        <div className="fleetbar-foot">
+          <div>ACTIVE STREAMS <b>{liveCount}</b></div>
+          <div>OPERATIONS API <b>{health ? "AVAILABLE" : "UNAVAILABLE"}</b></div>
         </div>
       </aside>
-      <main className="main">
-        <header className="topbar">
-          <div className="crumb">VIHANGA <span>/</span> {view}</div>
-          <div className="top-actions">
-            <span className="label-pill muted"><span className="status-dot" /> NO LIVE MAVLINK</span>
-            <span className="label-pill">FLIGHT CONTROL DISABLED</span>
-            <button type="button" className="refresh" onClick={() => void refresh()}>Refresh</button>
+      <div className="main-area">
+        <header className="toolbar">
+          <div className="toolbar-leading">
+            <span className="product-label">GROUND OPERATIONS</span>
+            <span className="toolbar-separator">/</span>
+            <strong>{section}</strong>
+          </div>
+          <div className="toolbar-right">
+            <span className={"link-chip " + (sample?.status === "LIVE" ? "ok" : "")}>
+              <span className="chip-dot"/>{linkLabel(sample?.status)}
+            </span>
+            <span className="vehicle-chip">{active?.vehicle_id || "NO AIRCRAFT"}</span>
+            <button className="toolbar-button accent" onClick={() => setConnectOpen(true)}
+              disabled={!selected}>Connect</button>
           </div>
         </header>
-        <div className="content">
-          <div className="page-heading">
-            <div><div className="eyebrow">OPERATIONS CONSOLE / V1 FOUNDATION</div>
-              <h1>{view === "FLIGHT" ? "Flight overview" : view === "MISSIONS" ? "Mission planning" :
-                view === "FLEET" ? "Aircraft registry" : view === "VISION" ? "Video systems" :
-                view === "LINK" ? "Connectivity" : view === "OPERATIONS" ? "Operations" : "Security posture"}</h1>
-              <p>{view === "FLIGHT" ? "Live data is displayed only after an authenticated aircraft connection." :
-                view === "MISSIONS" ? "Compose and preserve route drafts without sending aircraft commands." :
-                view === "FLEET" ? "Register aircraft identities. Registration is not a live connection." :
-                "System information reflects implemented capabilities, not simulated operation."}</p>
-            </div>
-            {vehicles.length > 0 && <label className="aircraft-select">SELECT AIRCRAFT
-              <select value={selected} onChange={e => setSelected(e.target.value)}>
-                {vehicles.map(v => <option key={v.vehicle_id} value={v.vehicle_id}>{v.label} / {v.vehicle_id}</option>)}
-              </select>
-            </label>}
+        <div className="map-stage">
+          <GeoMap polygon={section === "PLAN" ? polygon : []} route={section === "PLAN" || section === "HISTORY" ? waypoints : []}
+            position={location} drawing={section === "PLAN" && drawMode !== "NONE"}
+            basemap={basemap} centerSignal={centerSignal} onMapClick={clicked}/>
+          <div className="map-tools">
+            <button className={basemap === "satellite" ? "chosen" : ""} onClick={() => setBasemap("satellite")}>Satellite</button>
+            <button className={basemap === "streets" ? "chosen" : ""} onClick={() => setBasemap("streets")}>Streets</button>
+            <button disabled={!location} title={!location ? "No fresh GPS fix" : "Center selected aircraft"}
+              onClick={() => setCenterSignal(x => x + 1)}>Locate</button>
           </div>
-          {error && <div role="alert" className="alert error">{error}</div>}
-          {notice && <div role="status" className="alert notice">{notice}</div>}
-
-          {view === "FLIGHT" && <>
-            <div className="metric-grid">
-              <div className="metric"><small>VEHICLE LINK</small><strong>OFFLINE</strong><span>No authenticated edge session</span></div>
-              <div className="metric"><small>ACTIVE AIRCRAFT</small><strong>0</strong><span>{vehicles.length} registered locally</span></div>
-              <div className="metric"><small>MISSION DRAFTS</small><strong>{missions.length}</strong><span>Local records only</span></div>
-              <div className="metric"><small>COMMAND AUTHORITY</small><strong>NONE</strong><span>Disabled in this development build</span></div>
+          {section === "FLIGHT" && <div className="float-panel flight-summary">
+            <div className="panel-title"><h2>Aircraft status</h2><span>{active?.label || "Not selected"}</span></div>
+            <div className="status-rows">
+              <div><span>Link</span><strong>{linkLabel(sample?.status)}</strong></div>
+              <div><span>Flight mode</span><strong>{sample?.mode || "UNKNOWN"}</strong></div>
+              <div><span>Arm state</span><strong>{sample?.armed == null ? "UNKNOWN" : sample.armed ? "ARMED" : "DISARMED"}</strong></div>
+              <div><span>GNSS fix</span><strong>{sample?.gps_fix_type == null ? "UNAVAILABLE" : "TYPE " + sample.gps_fix_type}</strong></div>
+              <div><span>Satellites</span><strong>{sample?.satellites ?? "—"}</strong></div>
+              <div><span>Data age</span><strong>{sample?.age_ms == null ? "—" : sample.age_ms + " ms"}</strong></div>
+              <div><span>FC heartbeat</span><strong>{sample?.heartbeat_fresh ? "FRESH" : "MISSING / STALE"}</strong></div>
             </div>
-            <div className="panel-grid">
-              <section className="panel flight-panel">
-                <div className="panel-head"><h2>Primary flight display</h2><span className="muted-text">NO TELEMETRY</span></div>
-                <div className="horizon"><div className="horizon-line"/><div className="reticle">+</div>
-                  <div className="horizon-caption">FLIGHT ATTITUDE UNAVAILABLE</div></div>
-                <div className="readouts">
-                  {["ROLL","PITCH","YAW","ALTITUDE","SPEED","BATTERY"].map(v =>
-                    <div key={v}><small>{v}</small><strong>—</strong></div>)}
-                </div>
-              </section>
-              <section className="panel">
-                <div className="panel-head"><h2>Aircraft status</h2><span className="muted-text">NOT CONNECTED</span></div>
-                <div className="vehicle-name">{active?.label || "No aircraft selected"}</div>
-                <div className="facts">
-                  <div><span>Vehicle ID</span><b>{active?.vehicle_id || "—"}</b></div>
-                  <div><span>Autopilot</span><b>{active?.autopilot || "—"}</b></div>
-                  <div><span>GPS / Home</span><b>UNKNOWN</b></div>
-                  <div><span>FC heartbeat</span><b>NOT RECEIVED</b></div>
-                  <div><span>Flight mode</span><b>UNKNOWN</b></div>
-                  <div><span>Link source</span><b>NONE</b></div>
-                </div>
-                <h3>Flight actions</h3>
-                <div className="controls">{["ARM","TAKE OFF","LAND","RETURN HOME"].map(name =>
-                  <button disabled key={name} title="Flight control has not been implemented or approved">{name}</button>)}</div>
-                <p className="safety-note">Controls are intentionally unavailable. No flight-command endpoint exists.</p>
-              </section>
+            <div className="panel-footnote">Telemetry is derived from received MAVLink frames. Flight commands are not available in this build.</div>
+          </div>}
+          {section === "PLAN" && <section className="float-panel plan-panel">
+            <div className="panel-title"><h2>Route planning</h2><span>Draft / not dispatched</span></div>
+            <div className="toggle-row">
+              <button className={drawMode === "POLYGON" ? "active" : ""}
+                onClick={() => { setDrawMode(drawMode === "POLYGON" ? "NONE" : "POLYGON"); setOpenedMission(null); }}>
+                Draw survey area</button>
+              <button className={drawMode === "WAYPOINT" ? "active" : ""}
+                onClick={() => { setDrawMode(drawMode === "WAYPOINT" ? "NONE" : "WAYPOINT"); setOpenedMission(null); }}>
+                Add waypoints</button>
             </div>
-          </>}
-
-          {view === "FLEET" && <div className="panel-grid">
-            <section className="panel">
-              <div className="panel-head"><h2>Registered aircraft</h2><span className="muted-text">{vehicles.length} RECORDS</span></div>
-              {vehicles.length === 0 ? <div className="empty">No aircraft registered yet.</div> :
-                <div className="table-scroll"><table><thead><tr><th>Aircraft</th><th>Autopilot</th><th>Interface</th><th>State</th></tr></thead>
-                  <tbody>{vehicles.map(v => <tr key={v.vehicle_id}><td><b>{v.label}</b><small>{v.vehicle_id}</small></td><td>{v.autopilot}</td><td>{v.interface}</td><td><span className="offline">OFFLINE</span></td></tr>)}</tbody>
-                </table></div>}
-            </section>
-            <section className="panel">
-              <div className="panel-head"><h2>Register an aircraft</h2></div>
-              <form onSubmit={e => void addVehicle(e)} className="form-stack">
-                <label>Aircraft identifier<input required pattern="[A-Za-z0-9][A-Za-z0-9_-]{2,31}" placeholder="AH-HW-001"
-                  value={newVehicle.vehicle_id} onChange={e => setNewVehicle({ ...newVehicle, vehicle_id: e.target.value.toUpperCase() })}/></label>
-                <label>Display name<input required minLength={3} maxLength={80} placeholder="Test aircraft"
-                  value={newVehicle.label} onChange={e => setNewVehicle({ ...newVehicle, label: e.target.value })}/></label>
-                <div className="form-row"><label>Autopilot<select value={newVehicle.autopilot}
-                  onChange={e => setNewVehicle({ ...newVehicle, autopilot: e.target.value as VehicleCreate["autopilot"] })}>
-                  <option>ARDUPILOT</option><option>PX4</option><option>OTHER</option></select></label>
-                <label>Physical interface<select value={newVehicle.interface}
-                  onChange={e => setNewVehicle({ ...newVehicle, interface: e.target.value as VehicleCreate["interface"] })}>
-                  <option>UART</option><option>USB</option><option>ETHERNET</option><option>OTHER</option></select></label></div>
-                <button type="submit" className="primary" disabled={busy}>Register aircraft</button>
-                <p className="safety-note">Registers metadata only. No cloud session, serial port or vehicle command is opened.</p>
-              </form>
-            </section>
-          </div>}
-
-          {view === "MISSIONS" && <div className="panel-grid mission-layout">
-            <section className="panel">
-              <div className="panel-head"><h2>New route draft</h2><span className="offline">NOT FOR EXECUTION</span></div>
-              <form onSubmit={e => void createDraft(e)} className="form-stack">
-                <label>Mission title<input required minLength={3} maxLength={100} placeholder="Perimeter survey"
-                  value={missionTitle} onChange={e => setMissionTitle(e.target.value)}/></label>
-                <div className="waypoint-header"><h3>Waypoints</h3><button type="button" onClick={() => setWaypoints(p => p.length < 200 ? [...p, emptyPoint()] : p)}>+ Add waypoint</button></div>
-                <div className="table-scroll"><table className="wp-table"><thead><tr><th>#</th><th>Latitude</th><th>Longitude</th><th>Alt. m</th><th></th></tr></thead>
-                <tbody>{waypoints.map((p, i) => <tr key={i}>
-                  <td>{i + 1}</td>
-                  {(["latitude","longitude","altitude_m"] as const).map(field => <td key={field}><input required type="number" step="any" value={p[field]} onChange={e => updatePoint(i, field, e.target.value)}/></td>)}
-                  <td><button type="button" className="remove" disabled={waypoints.length <= 2} onClick={() => setWaypoints(rows => rows.filter((_, j) => j !== i))}>×</button></td>
-                </tr>)}</tbody></table></div>
-                <button type="submit" disabled={busy || !selected} className="primary">Save mission draft</button>
-                <p className="safety-note">Geographic limits, airspace restrictions, endurance and collision risks are NOT verified. Saving a draft never uploads a mission.</p>
-              </form>
-            </section>
-            <section className="panel">
-              <div className="panel-head"><h2>Saved missions</h2><span className="muted-text">{draftsForAircraft.length} FOR SELECTED AIRCRAFT</span></div>
-              {draftsForAircraft.length === 0 ? <div className="empty">No drafts for the selected aircraft.</div> :
-                <div className="draft-list">{draftsForAircraft.map(m => <div className="draft" key={m.mission_id}>
-                  <strong>{m.title}</strong><span>{m.waypoints.length} waypoints · {(m.distance_m/1000).toFixed(2)} km · DRAFT</span>
-                  <code>SHA256 {m.revision_sha256.slice(0, 20)}…</code>
-                </div>)}</div>}
-              <div className="divider"/>
-              <h3>Planning boundary</h3><p className="safety-note">Routes are stored with immutable revision digests. Upload, validation against a real flight envelope and execution are not enabled.</p>
-            </section>
-          </div>}
-
-          {view === "LINK" && <section className="panel narrow"><div className="panel-head"><h2>Transport channels</h2></div>
-            <div className="facts"><div><span>Operations API</span><b>{health ? "LOCAL / AVAILABLE" : "UNAVAILABLE"}</b></div>
-            <div><span>Aircraft edge agent</span><b>NOT CONFIGURED</b></div>
-            <div><span>Cloud relay</span><b>NOT CONNECTED</b></div>
-            <div><span>MAVLink receive</span><b>NOT CONFIGURED</b></div>
-            <div><span>Physical command path</span><b>DISABLED</b></div></div>
-            <p className="safety-note">This standalone rewrite does not inherit the old Raspberry Pi or Oracle services. They remain unaffected.</p></section>}
-
-          {view === "VISION" && <section className="panel narrow"><div className="panel-head"><h2>Video feed</h2></div>
-            <div className="video-empty"><div className="video-symbol">◉</div><strong>NO CAMERA STREAM</strong><span>No authenticated video source is configured.</span></div>
-            <p className="safety-note">Video transport will be integrated independently of the flight-command channel.</p></section>}
-
-          {view === "OPERATIONS" && <section className="panel narrow"><div className="panel-head"><h2>Operation records</h2></div>
-            <div className="metric-grid compact"><div className="metric"><small>AIRCRAFT ONLINE</small><strong>0</strong></div>
-              <div className="metric"><small>MISSION DRAFTS</small><strong>{missions.length}</strong></div></div>
-            <p className="safety-note">No mission has been dispatched. Approval, scheduling, audit and supervised execution will require an authenticated command service.</p></section>}
-
-          {view === "SECURITY" && <section className="panel narrow"><div className="panel-head"><h2>Development security boundary</h2></div>
-            <div className="facts"><div><span>Backend bind scope</span><b>127.0.0.1 ONLY</b></div>
-            <div><span>Operator authentication</span><b>NOT IMPLEMENTED</b></div>
-            <div><span>Per-aircraft command lease</span><b>NOT IMPLEMENTED</b></div>
-            <div><span>Command dispatch</span><b>DISABLED / NO ENDPOINT</b></div>
-            <div><span>Production deployment</span><b>NOT AUTHORIZED</b></div></div>
-            <p className="safety-note">Never expose this development backend to a public interface. Production identity, authorization and device attestation are required first.</p></section>}
+            {drawMode !== "NONE" && <div className="drawing-note">Click the map to add {drawMode === "POLYGON" ? "polygon vertices" : "waypoints"}.</div>}
+            <div className="plan-options">
+              <label>Line spacing (m)<input type="number" min="5" max="200" value={spacing}
+                onChange={e => { setSpacing(+e.target.value); setSurvey(null); }}/></label>
+              <label>Direction (°)<input type="number" min="0" max="179" value={bearing}
+                onChange={e => { setBearing(+e.target.value); setSurvey(null); }}/></label>
+              <label>Altitude (m)<input type="number" min="10" max="120" value={altitude}
+                onChange={e => { setAltitude(+e.target.value); setSurvey(null); }}/></label>
+            </div>
+            <div className="plan-buttons">
+              <button onClick={() => {
+                if (drawMode === "POLYGON") setPolygon(p => p.slice(0, -1));
+                if (drawMode === "WAYPOINT") setManual(p => p.slice(0, -1));
+                setSurvey(null);
+              }}>Undo point</button>
+              <button onClick={() => { setPolygon([]); setManual([]); setSurvey(null); setOpenedMission(null); }}>Clear</button>
+            </div>
+            <button className="major" onClick={() => void preview()}
+              disabled={busy || polygon.length < 3}>Generate survey lanes</button>
+            <div className="plan-stats">
+              <div><span>Survey vertices</span><strong>{polygon.length}</strong></div>
+              <div><span>Flight lines</span><strong>{survey?.lane_count ?? "—"}</strong></div>
+              <div><span>Waypoints</span><strong>{waypoints.length}</strong></div>
+              <div><span>Estimated route</span><strong>{survey ? (survey.route_distance_m / 1000).toFixed(2) + " km" : "—"}</strong></div>
+            </div>
+            {waypoints.length > 0 && <div className="waypoint-list">
+              {waypoints.slice(0, 80).map((p, i) => <div key={i}><b>{i + 1}</b>
+                {p.latitude.toFixed(5)}, {p.longitude.toFixed(5)}
+                <span>{p.altitude_m} m</span></div>)}
+              {waypoints.length > 80 && <small>Showing 80 of {waypoints.length} points</small>}
+            </div>}
+            <form className="save-form" onSubmit={e => void saveDraft(e)}>
+              <label>Mission name<input required minLength={3} maxLength={100} placeholder="Survey 01"
+                value={missionTitle} onChange={e => setMissionTitle(e.target.value)}/></label>
+              <button type="submit" className="major" disabled={busy || waypoints.length < 2 || !selected}>Save route draft</button>
+            </form>
+            <p className="panel-footnote">Planning geometry is real; terrain, airspace, obstacles and connecting turns are not cleared. No mission upload occurs.</p>
+          </section>}
+          {section === "FLEET" && <section className="float-panel utility-panel">
+            <div className="panel-title"><h2>Aircraft registry</h2><span>{vehicles.length} registered</span></div>
+            <form onSubmit={e => void addAircraft(e)} className="form-stack">
+              <label>Aircraft ID<input required placeholder="AH-HW-001" minLength={3} maxLength={32}
+                value={vehicleForm.vehicle_id} onChange={e => setVehicleForm({ ...vehicleForm, vehicle_id: e.target.value.toUpperCase() })}/></label>
+              <label>Display name<input required placeholder="Survey quadcopter" minLength={3} maxLength={80}
+                value={vehicleForm.label} onChange={e => setVehicleForm({ ...vehicleForm, label: e.target.value })}/></label>
+              <label>Autopilot<select value={vehicleForm.autopilot}
+                onChange={e => setVehicleForm({ ...vehicleForm, autopilot: e.target.value as VehicleCreate["autopilot"] })}>
+                <option value="ARDUPILOT">ArduPilot</option><option value="PX4">PX4</option>
+                <option value="OTHER">Other</option></select></label>
+              <label>FC interface<select value={vehicleForm.interface}
+                onChange={e => setVehicleForm({ ...vehicleForm, interface: e.target.value as VehicleCreate["interface"] })}>
+                <option value="UART">UART</option><option value="USB">USB</option>
+                <option value="ETHERNET">Ethernet</option><option value="OTHER">Other</option></select></label>
+              <button className="major" type="submit" disabled={busy}>Register aircraft</button>
+            </form>
+            <p className="panel-footnote">Aircraft remain offline until their actual telemetry connection is established.</p>
+          </section>}
+          {section === "LINK" && <section className="float-panel utility-panel">
+            <div className="panel-title"><h2>Connection diagnostics</h2><span>Receive-only</span></div>
+            <div className="status-rows">
+              <div><span>Selected aircraft</span><strong>{selected || "—"}</strong></div>
+              <div><span>Transport</span><strong>{sample?.transport || "NONE"}</strong></div>
+              <div><span>Status</span><strong>{linkLabel(sample?.status)}</strong></div>
+              <div><span>Frames received</span><strong>{sample?.frames_total ?? 0}</strong></div>
+              <div><span>Rejected frames</span><strong>{sample?.rejected_frames ?? 0}</strong></div>
+              <div><span>Last packet age</span><strong>{sample?.age_ms == null ? "—" : sample.age_ms + " ms"}</strong></div>
+              <div><span>Receiver error</span><strong>{sample?.error_code || "—"}</strong></div>
+            </div>
+            <div className="plan-buttons">
+              <button className="major" disabled={!selected} onClick={() => setConnectOpen(true)}>Connect aircraft</button>
+              <button disabled={!sample || sample.status === "OFFLINE" || busy} onClick={() => void stopLink()}>Disconnect</button>
+            </div>
+            <p className="panel-footnote">Cloud uses authenticated private WSS; UDP accepts SITL frames only on localhost. Neither transport forwards commands to an FC.</p>
+          </section>}
+          {section === "HISTORY" && <section className="float-panel utility-panel history-panel">
+            <div className="panel-title"><h2>Saved route history</h2><span>{displayedMissionList.length} drafts</span></div>
+            <div className="history-list">
+              {displayedMissionList.length === 0 && <p className="panel-footnote">No saved drafts for this aircraft.</p>}
+              {displayedMissionList.map(m => <button key={m.mission_id} onClick={() => {
+                setOpenedMission(m); setSurvey(null); setManual([]); setPolygon([]);
+              }} className={openedMission?.mission_id === m.mission_id ? "picked" : ""}>
+                <strong>{m.title}</strong>
+                <span>{m.waypoints.length} points · {(m.distance_m / 1000).toFixed(2)} km</span>
+                <small>{m.revision_sha256.slice(0, 16)} · DRAFT</small>
+              </button>)}
+            </div>
+            <p className="panel-footnote">This is a real record of stored mission drafts, not a log of flights that did not occur.</p>
+          </section>}
+          {section === "VIDEO" && <section className="float-panel utility-panel video-panel">
+            <div className="panel-title"><h2>Camera</h2><span>Independent video path</span></div>
+            <form onSubmit={setVideo} className="form-stack">
+              <label>Private stream page (HTTPS)<input value={cameraInput} type="url" required
+                placeholder="https://aircraft.ts.net/cam"
+                onChange={e => setCameraInput(e.target.value)}/></label>
+              <button className="major" type="submit">Open camera</button>
+            </form>
+            {cameraUrl && <div className="video-container">
+              <iframe title="Authenticated aircraft camera" src={cameraUrl}
+                referrerPolicy="no-referrer" allow="autoplay; fullscreen"/>
+              <a href={cameraUrl} target="_blank" rel="noreferrer">Open camera in separate window</a>
+            </div>}
+            {!cameraUrl && <p className="panel-footnote">Enter an actual authenticated MediaMTX/WebRTC camera page. No stock video is displayed.</p>}
+          </section>}
+          <div className="map-coordinates">Map center is a default view, not an aircraft position. Aircraft location appears only with a fresh GPS fix.</div>
+          {alert && <div className="toast error" role="alert">{alert}<button onClick={() => setAlert("")}>×</button></div>}
+          {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
         </div>
-        <footer><span>VIHANGA / STANDALONE ENGINEERING BUILD</span><span>LIVE AIRCRAFT CONTROL: DISABLED</span></footer>
-      </main>
+        <footer className="flight-strip">
+          <div><small>ROLL</small><strong>{value(sample?.roll_deg)}°</strong></div>
+          <div><small>PITCH</small><strong>{value(sample?.pitch_deg)}°</strong></div>
+          <div><small>YAW</small><strong>{value(sample?.yaw_deg)}°</strong></div>
+          <div><small>REL ALT</small><strong>{value(sample?.relative_alt_m)} m</strong></div>
+          <div><small>GROUND SPEED</small><strong>{value(sample?.groundspeed_mps)} m/s</strong></div>
+          <div><small>BATTERY</small><strong>{value(sample?.voltage_v, 2)} V</strong></div>
+          <div><small>GPS FIX</small><strong>{sample?.gps_fix_type ?? "—"}</strong></div>
+          <div><small>HEARTBEAT</small><strong>{sample?.heartbeat_fresh ? "FRESH" : "NONE"}</strong></div>
+        </footer>
+      </div>
+      {connectOpen && <div className="modal-backdrop" onClick={e => {
+        if (e.currentTarget === e.target) { setConnectOpen(false); setPassword(""); }
+      }}>
+        <section className="connect-dialog" role="dialog" aria-modal="true" aria-labelledby="connect-title">
+          <div className="dialog-head"><div><h2 id="connect-title">Connect aircraft</h2><p>{active?.label} · {selected}</p></div>
+            <button type="button" onClick={() => { setConnectOpen(false); setPassword(""); }}>×</button></div>
+          <div className="transport-tabs">
+            <button className={linkType === "CLOUD" ? "active" : ""} onClick={() => setLinkType("CLOUD")}>Private cloud</button>
+            <button className={linkType === "UDP" ? "active" : ""} onClick={() => setLinkType("UDP")}>Local UDP / SITL</button>
+          </div>
+          <form onSubmit={e => void startLink(e)} className="form-stack">
+            {linkType === "CLOUD" ? <>
+              <label>Vihanga relay origin<input type="url" required placeholder="https://host.ts.net:8443"
+                value={origin} onChange={e => setOrigin(e.target.value)}/></label>
+              <label>Operator username<input required value={username}
+                onChange={e => setUsername(e.target.value)}/></label>
+              <label>Operator password<input required type="password" autoComplete="off"
+                value={password} onChange={e => setPassword(e.target.value)}/></label>
+            </> : <label>Local UDP listen port<input type="number" min="1024" max="65535"
+              value={port} onChange={e => setPort(+e.target.value)}/></label>}
+            <label>FC MAVLink system ID<input type="number" min="1" max="254"
+              value={sysid} onChange={e => setSysid(+e.target.value)}/></label>
+            <p className="dialog-info">{linkType === "CLOUD"
+              ? "Credentials are sent only to the configured private relay and are not saved to disk. The relay must already be reachable over Tailscale."
+              : "Listens on 127.0.0.1 only. A local ArduPilot SITL instance must send authentic MAVLink frames to this port."}
+              {" "}This connection is read-only.</p>
+            <button className="major" disabled={busy || !selected} type="submit">
+              {busy ? "Connecting…" : "Start telemetry connection"}</button>
+          </form>
+        </section>
+      </div>}
     </div>
   );
 }
