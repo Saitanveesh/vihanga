@@ -62,6 +62,7 @@ jobs:
           container="$(docker run -d --read-only --cap-drop ALL --security-opt no-new-privileges -e VIHANGA_CLOUD_AIRCRAFT_JSON vihanga-cloud:ci)"
           trap 'docker logs "$container"; docker rm -f "$container" >/dev/null' EXIT
           docker exec -i -e VIHANGA_CI_TOKEN "$container" python - < cloud/checks/container_smoke.py
+          docker exec -i -e VIHANGA_CI_TOKEN "$container" python - < cloud/checks/socket_latency.py
       - name: Check container never publishes public host ports in Compose
         shell: bash
         run: |
