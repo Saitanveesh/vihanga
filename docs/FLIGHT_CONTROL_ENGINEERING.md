@@ -32,7 +32,8 @@ command succeeded. A rendered button is not evidence of an available transport.
    Do **not** set this on the Oracle VM or Raspberry Pi flight deployment.
 4. Start the standalone GCS using the repository startup script. Connect to
    the Pixhawk using Connections → Primary → Serial/USB and verify the actual
-   FC HEARTBEAT and ATTITUDE. Bench read requests remain locked unless a\n   fresh FC HEARTBEAT explicitly reports **DISARMED**.
+   FC HEARTBEAT and ATTITUDE. Bench read requests remain locked unless a
+   fresh FC HEARTBEAT explicitly reports **DISARMED**.
 5. Select CONTROL → Diagnostics. Request FC version, RC, GPS or system status.
    The API returns `SERIAL_WRITE_COMPLETED` after the serial owner writes an
    allowlisted MAVLink read request. Observe the subsequent actual MAVLink
@@ -44,7 +45,7 @@ command succeeded. A rendered button is not evidence of an available transport.
    physically removed):
 
    ```powershell
-   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\Test-Vihanga-BenchRead.ps1 -Query FC_VERSION -AircraftId AH-HW-001 -PropellersRemoved
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Vihanga-BenchRead.ps1 -Query FC_VERSION -AircraftId AH-HW-001 -PropellersRemoved
    ```
 
 8. To disable bench requests, close the GCS, remove that environment variable
