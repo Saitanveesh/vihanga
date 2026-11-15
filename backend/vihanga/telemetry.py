@@ -8,7 +8,7 @@ import asyncio
 import os
 import ssl
 from pathlib import Path
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from math import degrees, isfinite
@@ -85,9 +85,11 @@ def validate_lan_origin(origin: str) -> str:
         addr = ip_address(host) if host else None
     except ValueError as exc:
         raise ValueError("Expected a direct private IPv4 LAN HTTPS origin") from exc
-    if (p.scheme != "https" or addr is None or addr.version != 4 or
-            not addr.is_private or addr.is_loopback or addr.is_link_local or
-            addr.is_multicast or addr.is_unspecified or
+    allowed = bool(addr is not None and addr.version == 4 and any(
+        addr in ip_network(cidr) for cidr in (
+            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"
+        )))
+    if (p.scheme != "https" or not allowed or
             port is None or not 8765 <= port <= 8775 or
             p.path not in ("", "/") or p.username or p.password or
             p.query or p.fragment):
