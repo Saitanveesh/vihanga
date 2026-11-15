@@ -27,10 +27,17 @@ command succeeded. A rendered button is not evidence of an available transport.
    Verify batteries, power distribution and emergency disconnection are safe.
 2. Use a direct **USB** or dedicated UART serial connection between the
    Windows GCS and an unarmed Pixhawk. Only one application may own the port.
-3. In a new PowerShell process before starting the local backend,
-   set `$env:VIHANGA_BENCH_READ_REQUESTS = '1'`.
-   Do **not** set this on the Oracle VM or Raspberry Pi flight deployment.
-4. Start the standalone GCS using the repository startup script. Connect to
+3. To launch local GCS with bench-read mode, first close any older
+   Vihanga API process on 127.0.0.1:8010. Then start from the repository root:
+
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-Vihanga-Standalone.ps1 -BenchRead -PropellersRemoved
+   ```
+
+   This launcher checks actual API/console readiness and displays startup-log
+   errors instead of silently opening dead processes. Do **not** enable this
+   mode on Oracle or the Pi.
+4. Connect to
    the Pixhawk using Connections → Primary → Serial/USB and verify the actual
    FC HEARTBEAT and ATTITUDE. Bench read requests remain locked unless a
    fresh FC HEARTBEAT explicitly reports **DISARMED**.

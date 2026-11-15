@@ -139,3 +139,40 @@ jobs:
             exit 1
           fi
           echo 'PASS: standalone code tree contains no Mission Planner runtime dependency'
+
+
+  windows-launcher:
+    runs-on: windows-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated local backend
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          & .\.venv\Scripts\python.exe -m pip install -e .\backend
+          if ($LASTEXITCODE -ne 0) { throw "Backend installation failed" }
+      - name: Start and verify real Vihanga API through Windows launcher
+        shell: pwsh
+        run: |
+          .\scripts\Start-Vihanga-Standalone.ps1 -ApiOnly -SkipInstall
+          $health = Invoke-RestMethod 'http://127.0.0.1:8010/api/v1/health'
+          if ($health.service -ne 'vihanga-standalone' -or $health.physical_flight_control -ne $false) {
+            throw "Wrong API or unexpected flight-control authority"
+          }
+          $capabilities = Invoke-RestMethod 'http://127.0.0.1:8010/api/v1/capabilities'
+          if ($capabilities.bench_nonactuating_requests -ne $false) {
+            throw "Unrequested bench mode was enabled"
+          }
+      - name: Check bench script rejects missing physical safety confirmation
+        shell: pwsh
+        run: |
+          try {
+            .\scripts\Test-Vihanga-BenchRead.ps1 -Query FC_VERSION
+            throw "Bench script did not enforce propeller confirmation"
+          } catch {
+            if ($_.Exception.Message -notmatch 'Propeller-free bench confirmation') { throw }
+          }

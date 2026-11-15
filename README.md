@@ -39,7 +39,9 @@ git pull --ff-only origin main
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-Vihanga-Standalone.ps1
 ~~~
 
-Open **http://127.0.0.1:5173** (console) and **http://127.0.0.1:8010/api/v1/health** (local API). The startup script starts the development processes. These ports must remain bound to loopback; do not expose the local development API to the internet.
+Open **http://127.0.0.1:5173** (console) and **http://127.0.0.1:8010/api/v1/health** (local API). The Windows launcher checks readiness and records startup errors in `data/launcher-logs/`; it will not silently claim a service started. Its `-ApiOnly` and `-SkipInstall` switches support focused local diagnosis.
+
+For approved **propeller-free local USB information requests only**, use `-BenchRead -PropellersRemoved` when starting the launcher, then connect a DISARMED Pixhawk through the GCS Serial/USB receiver. A pre-existing server without this opt-in must be explicitly stopped; the launcher does not change its configuration secretly. Bench read opt-in is not remote ARM/LAND authority. These ports must remain bound to loopback; do not expose the local development API to the internet.
 
 ### Connect a telemetry source
 
