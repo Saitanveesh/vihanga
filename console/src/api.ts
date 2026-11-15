@@ -39,6 +39,9 @@ export interface SurveyPreview {
   lane_count: number;
   route_distance_m: number;
   area_m2: number;
+  estimated_duration_s: number;
+  pattern?: string;
+  coverage_note?: string;
   requires_route_review: boolean;
   status: "PREVIEW_ONLY";
 }
@@ -119,8 +122,11 @@ export const getTelemetry = (id: string) => request<Telemetry>("telemetry/" + en
 export const registerVehicle = (input: VehicleCreate) => jsonPost<{ vehicle_id: string }>("vehicles", input);
 export const saveMission = (input: MissionCreate) => jsonPost<Mission>("missions", input);
 export const previewSurvey = (input: {
-  polygon: GeoPoint[]; spacing_m: number; angle_deg: number; altitude_m: number
+  polygon: GeoPoint[]; spacing_m: number; angle_deg: number; altitude_m: number; speed_mps: number
 }) => jsonPost<SurveyPreview>("surveys/preview", input);
+export const previewCircularSurvey = (input: {
+  polygon: GeoPoint[]; spacing_m: number; altitude_m: number; speed_mps: number
+}) => jsonPost<SurveyPreview>("surveys/circular/preview", input);
 export const connectCloud = (input: CloudSettings) => jsonPost<Telemetry>("links/cloud", input);
 export const connectUDP = (input: UDPSettings) => jsonPost<Telemetry>("links/udp", input);
 export const disconnectLink = (id: string) => request<Telemetry>("links/" + encodeURIComponent(id), {method: "DELETE"});
