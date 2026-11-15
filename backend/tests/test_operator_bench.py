@@ -20,7 +20,7 @@ def decode(packet: bytes):
 
 
 def test_complete_operation_catalog_cannot_expose_actuation():
-    overview = catalog(bench_enabled=True, local_serial=True, connected=True)
+    overview = catalog(bench_enabled=True, local_serial=True, connected=True, disarmed_verified=True)
     assert overview["physical_flight_control_enabled"] is False
     assert overview["cloud_command_dispatch_enabled"] is False
     codes = {item["code"]: item for item in overview["operations"]}
@@ -37,9 +37,10 @@ def test_complete_operation_catalog_cannot_expose_actuation():
         assert codes[name]["enabled"] is True
         assert codes[name]["status"] == "READY"
 
-    for ready in (catalog(bench_enabled=False, local_serial=True, connected=True),
-                  catalog(bench_enabled=True, local_serial=False, connected=True),
-                  catalog(bench_enabled=True, local_serial=True, connected=False)):
+    for ready in (catalog(bench_enabled=False, local_serial=True, connected=True, disarmed_verified=True),
+                  catalog(bench_enabled=True, local_serial=False, connected=True, disarmed_verified=True),
+                  catalog(bench_enabled=True, local_serial=True, connected=False, disarmed_verified=True),
+                  catalog(bench_enabled=True, local_serial=True, connected=True, disarmed_verified=False)):
         assert all(not entry["enabled"] for entry in ready["operations"])
 
 
