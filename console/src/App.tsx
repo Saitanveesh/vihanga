@@ -487,8 +487,17 @@ export default function App() {
               <span className="chip-dot"/>{linkLabel(sample?.status)}
             </span>
             <span className="vehicle-chip">{active?.vehicle_id || "NO AIRCRAFT"}</span>
-            <button className="toolbar-button accent" onClick={() => setConnectOpen(true)}
-              disabled={!selected} title="Connect authenticated receive-only telemetry">Connect ↗</button>
+            <button type="button" className="toolbar-button diagnostics-toggle"
+              onClick={() => setDiagnosticsOpen(open => !open)}
+              aria-expanded={diagnosticsOpen}
+              aria-label={diagnosticsOpen ? "Hide link diagnostics" : "Show link diagnostics"}
+              disabled={!selected} title="Live link, backup and sensor diagnostics">
+              <UiIcon name="activity" size={16}/> Diagnostics
+            </button>
+            <button className="toolbar-button accent" onClick={() => openConnection()}
+              disabled={!selected} title="Configure primary or backup telemetry receiver">
+              <UiIcon name="radio" size={15}/> Connections
+            </button>
           </div>
         </header>
         <div className={"map-stage " + ((section === "FLIGHT" || section === "PLAN") ? "has-operations" : "")}>
@@ -690,7 +699,7 @@ export default function App() {
               <div><span>Receiver error</span><strong>{sample?.error_code || "—"}</strong></div>
             </div>
             <div className="plan-buttons">
-              <button className="major" disabled={!selected} onClick={() => setConnectOpen(true)}>Connect aircraft</button>
+              <button className="major" disabled={!selected} onClick={() => openConnection()}>Connection settings</button>
               <button disabled={!sample || sample.status === "OFFLINE" || busy} onClick={() => void stopLink()}>Disconnect</button>
             </div>
             <p className="panel-footnote">Cloud uses authenticated private WSS; UDP accepts SITL frames only on localhost. Neither transport forwards commands to an FC.</p>
@@ -726,6 +735,35 @@ export default function App() {
             </div>}
             {!cameraUrl && <p className="panel-footnote">Enter an actual authenticated MediaMTX/WebRTC camera page. No stock video is displayed.</p>}
           </section>}
+          <div className={"ops-signal-strip" + (diagnosticsOpen ? " drawer-open" : "")}
+            aria-label="Aircraft link summary">
+            <div className={"ops-signal-item " + (sample?.heartbeat_fresh ? "healthy" : "fault")}>
+              <UiIcon name="radio" size={15}/>
+              <span>FC</span><strong>{sample?.heartbeat_fresh ? "FRESH" : "NO DATA"}</strong>
+            </div>
+            <div className={"ops-signal-item " +
+              (sample?.gps_fix_type != null && sample.gps_fix_type >= 3 ? "healthy" : "caution")}>
+              <UiIcon name="map" size={15}/>
+              <span>GPS</span><strong>{sample?.gps_fix_type == null ? "—" : "FIX " + sample.gps_fix_type}</strong>
+            </div>
+            <div className="ops-signal-item">
+              <UiIcon name="activity" size={15}/>
+              <span>RF</span><strong>{sample?.radio_rssi_raw ?? "—"}</strong>
+            </div>
+            <button type="button" className="ops-summary-button"
+              aria-label={diagnosticsOpen ? "Close link and sensors panel" : "Open link and sensors panel"}
+              aria-expanded={diagnosticsOpen}
+              onClick={() => setDiagnosticsOpen(open => !open)}>
+              {diagnosticsOpen ? "Close panel" : "Link & sensors"}
+            </button>
+          </div>
+          {diagnosticsOpen && <OperationsPanel
+            aircraftId={selected} telemetry={sample} busy={busy}
+            onClose={() => setDiagnosticsOpen(false)}
+            onConfigureBackup={() => openConnection("BACKUP")}
+            onSelect={role => { void chooseSource(role); }}
+            onRemoveBackup={() => { void stopBackupLink(); }}
+          />}
           <div className="map-coordinates">{observedTrack.length > 0
             ? "BLUE: observed GNSS track · AMBER: planned route. Recorded points are not approved flight commands."
             : "Map center is a default view, not an aircraft position. Live position needs fresh GNSS."}</div>
