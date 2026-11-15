@@ -1,4 +1,4 @@
-# Vihanga v0.16 — operator acceptance
+# Vihanga v0.17 — operator acceptance
 
 This is an operator **visual and operational smoke test**, not a certification of flight-control safety. The independent Vihanga app is telemetry-only. Keep the working Oracle :8443 private relay, Pi UART service and camera streamer unchanged while testing the new console. The old legacy Mission Planner fork is a separate repository and is not required.
 
@@ -17,7 +17,10 @@ Open http://127.0.0.1:5173. The API must be available at http://127.0.0.1:8010/a
 
 1. **Fleet identity:** the selected actual aircraft ID is AH-HW-001 (the displayed nickname might be TEST001). Fleet count reflects registered aircraft, not the number currently online.
 2. **Link:** choose Private relay for the pre-existing Oracle instance, using https://aerohelm-vcn.tailf3ab6a.ts.net:8443 and the separately provisioned operator login. Do not enter the newer independent broker viewer token into this form.
-3. **Live instruments:** while disarmed with propellers removed, move the Pixhawk on the bench. Fresh HEARTBEAT and ATTITUDE, numerical roll/pitch and heading should change consistently. Inspect message counts and actual received frame rate in LINK.
+3. **Connection types:** in Connections, verify the contrast between Primary/Backup roles and Private relay, Vihanga Cloud, Serial/USB, UDP, and TCP transport settings. Confirm the cloud origin and username may persist locally, while passwords and viewer tokens do not. Confirm an existing primary cannot be replaced accidentally.
+4. **Backup:** with a real independent secondary receive link, check BACKUP remains separate. Ensure mismatched FC SYSID and same transport class are rejected. Selecting an unverified backup must be disabled. With validated fresh heartbeat and attitude, manually select it and check the HUD follows only that source. Restore the primary only after its own fresh data arrives; loss of active backup must not show stale attitude as LIVE. Receiver changes must not dispatch commands.
+5. **Radio and sensors:** open Diagnostics. Verify raw RADIO_STATUS values where present (including component 68), accurate GPS1/GPS2 fix/satellite reporting and SYS_STATUS health flags. If packets are absent, values must say unknown/not reported, not estimated. Never treat uncalibrated RSSI as a percent or dBm.
+6. **Live instruments:** while disarmed with propellers removed, move the Pixhawk on the bench. Fresh HEARTBEAT and ATTITUDE, numerical roll/pitch and heading should change consistently. Inspect message counts and actual received frame rate in LINK.
 4. **Freshness:** when telemetry stops, live status and attitude must expire. Never interpret a merely connected WebSocket as a live FC.
 5. **GPS:** fix type below 3 or missing GNSS packets must not create an aircraft position or flight trail. GPS2 values can remain blank when no secondary GPS2 MAVLink packets are received.
 6. **Panels:** hide/show each operator panel and the fleet sidebar without losing current mission draft or interrupting a live telemetry session. Camera should have a dedicated page rather than a second permanent right-side card.
