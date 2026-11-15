@@ -239,7 +239,14 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
 
     @app.websocket("/ws/v1/telemetry/{vehicle_id}")
     async def live_telemetry_socket(socket: WebSocket, vehicle_id: str):
-        # Loopback development only. No remote auth/command authority is implied.
+        # Browsers can open cross-origin WebSockets without a CORS preflight.
+        origin = socket.headers.get("origin")
+        if origin is not None and origin not in {
+            "http://127.0.0.1:5173", "http://localhost:5173",
+            "http://127.0.0.1:8010", "http://localhost:8010",
+        }:
+            await socket.close(code=1008)
+            return
         with db() as con:
             known = con.execute("SELECT 1 FROM vehicles WHERE vehicle_id=?", (vehicle_id,)).fetchone()
         if not known:
