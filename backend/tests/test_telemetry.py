@@ -194,7 +194,7 @@ async def test_backup_cannot_be_selected_without_fresh_fc_attitude():
     backup_port = 15644
     try:
         await mgr.start_udp(UDPConnect(vehicle_id=vehicle, port=primary_port, fc_system_id=1))
-        with pytest.raises(ValueError, match="matching"):
+        with pytest.raises(ValueError, match="must match primary"):
             await mgr.start_backup(TCPConnect(vehicle_id=vehicle, port=backup_port, fc_system_id=2))
         with pytest.raises((OSError, ConnectionRefusedError)):
             await mgr.start_backup(TCPConnect(vehicle_id=vehicle, port=backup_port, fc_system_id=1))
