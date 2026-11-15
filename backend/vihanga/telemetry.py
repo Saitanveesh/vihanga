@@ -116,6 +116,10 @@ class MAVLinkProjector:
     track_distance_m: float = 0.0
     recent_frames: deque = field(default_factory=lambda: deque(maxlen=512))
 
+    # Raw RF readings are transport-dependent. They are not dBm or percent.
+    # Sensor flags are only available when SYS_STATUS actually arrives.
+
+
     def _set(self, key, value, now):
         self.fields[key] = (value, now)
 
@@ -186,7 +190,35 @@ class MAVLinkProjector:
                 alt = msg.relative_alt / 1000
                 if -10000 <= alt <= 100000:
                     self._set("relative_alt_m", round(alt, 2), now)
+            elif typ == "RADIO_STATUS":
+                for name, raw_value in (
+                    ("radio_rssi_raw", int(msg.rssi)),
+                    ("radio_remote_rssi_raw", int(msg.remrssi)),
+                    ("radio_noise_raw", int(msg.noise)),
+                    ("radio_rx_errors", int(msg.rxerrors)),
+                    ("radio_fixed_packets", int(msg.fixed)),
+                    ("radio_txbuf_raw", int(msg.txbuf)),
+                ):
+                    if raw_value >= 0:
+                        self._set(name, raw_value, now)
             elif typ == "SYS_STATUS":
+                # MAV_SYS_STATUS_SENSOR flags: 3D_GYRO=0, 3D_ACCEL=1,
+                # 3D_MAG=2, GPS=5, RC_RECEIVER=16. Decode only reported
+                # presence/enabled/health; never infer from packet arrival.
+                present = int(msg.onboard_control_sensors_present)
+                enabled = int(msg.onboard_control_sensors_enabled)
+                healthy = int(msg.onboard_control_sensors_health)
+                sensors = {}
+                for label, bit in (
+                    ("gyroscope", 0), ("accelerometer", 1),
+                    ("magnetometer", 2), ("gps", 5),
+                    ("rc_receiver", 16)
+                ):
+                    flag = 1 << bit
+                    sensors[label] = ("ABSENT" if not present & flag
+                        else "DISABLED" if not enabled & flag
+                        else "HEALTHY" if healthy & flag else "FAULT")
+                self._set("sensor_health", sensors, now)
                 current = int(msg.current_battery)
                 if 0 <= current < 32767:
                     self._set("battery_current_a", round(current / 100, 2), now)
@@ -238,6 +270,13 @@ class MAVLinkProjector:
             "climb_mps": fresh("climb_mps"),
             "voltage_v": fresh("voltage_v"), "battery_pct": fresh("battery_pct"),
             "battery_current_a": fresh("battery_current_a"),
+            "radio_rssi_raw": fresh("radio_rssi_raw", 5),
+            "radio_remote_rssi_raw": fresh("radio_remote_rssi_raw", 5),
+            "radio_noise_raw": fresh("radio_noise_raw", 5),
+            "radio_rx_errors": fresh("radio_rx_errors", 5),
+            "radio_fixed_packets": fresh("radio_fixed_packets", 5),
+            "radio_txbuf_raw": fresh("radio_txbuf_raw", 5),
+            "sensor_health": fresh("sensor_health", 5),
             "frame_rate_5s_hz": round(sum(
                 1 for stamp in self.recent_frames if 0 <= now - stamp <= 5) / 5, 2),
             "frames_total": sum(self.count.values()),
@@ -286,20 +325,105 @@ class UDPReceiver(asyncio.DatagramProtocol):
 
 
 class LinkManager:
+    """Two independent receive-only sources per registered aircraft.
+
+    The primary session retains the established API contract. A second
+    LinkManager owns the standby receiver's sockets and reconnect task.
+    Promotion is explicit and only permitted after fresh FC evidence.
+    No MAVLink write path or automatic flight-control failover exists.
+    """
     def __init__(self):
         self.sessions: dict[str, Session] = {}
+        self.standby_managers: dict[str, LinkManager] = {}
+        self.selected_sources: dict[str, str] = {}
+
+    def active_session(self, vehicle_id: str) -> Session | None:
+        if self.selected_sources.get(vehicle_id) == "BACKUP":
+            standby = self.standby_managers.get(vehicle_id)
+            return standby.sessions.get(vehicle_id) if standby else None
+        return self.sessions.get(vehicle_id)
 
     def snapshot(self, vehicle_id):
-        session = self.sessions.get(vehicle_id)
-        if session:
-            return session.snapshot()
-        return {
+        primary = self.sessions.get(vehicle_id)
+        manager = self.standby_managers.get(vehicle_id)
+        backup = manager.sessions.get(vehicle_id) if manager else None
+        role = self.selected_sources.get(vehicle_id, "PRIMARY")
+        active = backup if role == "BACKUP" else primary
+        selected_sample = active.snapshot() if active else {
             "vehicle_id": vehicle_id, "transport": None,
             "status": "OFFLINE", "error_code": None,
             "flight_control_enabled": False, **MAVLinkProjector(1).snapshot()
         }
+        pri = primary.snapshot() if primary else None
+        bak = backup.snapshot() if backup else None
+        return {
+            **selected_sample, "active_source": role,
+            "primary_status": pri["status"] if pri else "OFFLINE",
+            "primary_transport": pri["transport"] if pri else None,
+            "primary_heartbeat_fresh": pri["heartbeat_fresh"] if pri else False,
+            "primary_attitude_fresh": pri["attitude_fresh"] if pri else False,
+            "backup_status": bak["status"] if bak else "NOT_CONFIGURED",
+            "backup_transport": bak["transport"] if bak else None,
+            "backup_error_code": bak["error_code"] if bak else None,
+            "backup_heartbeat_fresh": bak["heartbeat_fresh"] if bak else False,
+            "backup_attitude_fresh": bak["attitude_fresh"] if bak else False,
+            "backup_frame_rate_5s_hz": bak["frame_rate_5s_hz"] if bak else None,
+            "backup_age_ms": bak["age_ms"] if bak else None,
+        }
+
+    async def start_backup(self, request):
+        vehicle_id = request.vehicle_id
+        primary = self.sessions.get(vehicle_id)
+        if primary is None:
+            raise ValueError("Connect primary telemetry before configuring backup")
+        if vehicle_id in self.standby_managers:
+            raise ValueError("Remove the existing backup receiver first")
+        kinds = {
+            BrokerConnect: ("VIHANGA_CLOUD_V2", "start_broker"),
+            CloudConnect: ("PRIVATE_CLOUD_WSS", "start_cloud"),
+            SerialConnect: ("LOCAL_SERIAL_RECEIVE", "start_serial"),
+            TCPConnect: ("LOCAL_TCP_RECEIVE", "start_tcp"),
+            UDPConnect: ("LOCAL_UDP_SITL", "start_udp"),
+        }
+        key = type(request)
+        if key not in kinds:
+            raise ValueError("Unsupported backup transport")
+        backup_kind, method = kinds[key]
+        if primary.kind == backup_kind:
+            raise ValueError("Backup must use a different transport type")
+        if primary.projector.system_id != request.fc_system_id:
+            raise ValueError("Backup FC system ID must match primary aircraft")
+        # The subsidiary manager owns its independent read-only task/socket.
+        # No alias to primary's parser or serial file handle is created.
+        standby = LinkManager()
+        await getattr(standby, method)(request)
+        self.standby_managers[vehicle_id] = standby
+        return self.snapshot(vehicle_id)
+
+    def select_source(self, vehicle_id: str, source: str):
+        if source not in ("PRIMARY", "BACKUP"):
+            raise ValueError("Invalid telemetry source")
+        target = (self.sessions.get(vehicle_id) if source == "PRIMARY"
+                  else self.standby_managers.get(vehicle_id).sessions.get(vehicle_id)
+                  if vehicle_id in self.standby_managers else None)
+        if target is None or target.snapshot()["status"] != "LIVE":
+            raise ValueError("Selected receiver needs fresh FC heartbeat and attitude")
+        self.selected_sources[vehicle_id] = source
+        return self.snapshot(vehicle_id)
+
+    async def stop_backup(self, vehicle_id: str):
+        standby = self.standby_managers.pop(vehicle_id, None)
+        # Explicit removal of the active backup returns to primary's actual
+        # status, even when primary is stale. No fictitious LIVE fallback.
+        self.selected_sources.pop(vehicle_id, None)
+        if standby:
+            await standby.stop(vehicle_id)
+        return self.snapshot(vehicle_id)
 
     async def stop(self, vehicle_id):
+        if vehicle_id in self.standby_managers:
+            await self.stop_backup(vehicle_id)
+        self.selected_sources.pop(vehicle_id, None)
         session = self.sessions.pop(vehicle_id, None)
         if session is None:
             return
