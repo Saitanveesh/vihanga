@@ -55,6 +55,30 @@ describe("geographic map visual geometry regression", () => {
     expect(both.features.filter(f => f.properties.kind === "aircraft")).toHaveLength(1);
   });
 
+  it("keeps survey coverage, planned route and observed flight track distinct", () => {
+    const polygon: MapPoint[] = [
+      {latitude: 12.970, longitude: 77.590},
+      {latitude: 12.970, longitude: 77.595},
+      {latitude: 12.975, longitude: 77.595},
+      {latitude: 12.975, longitude: 77.590}
+    ];
+    const track: MapPoint[] = [
+      {latitude: 12.965, longitude: 77.582},
+      {latitude: 12.966, longitude: 77.583}
+    ];
+    const result = buildGeometry(polygon, route, null, track);
+    const kinds = result.features.map(f => f.properties.kind);
+    expect(kinds).toContain("survey");
+    expect(kinds).toContain("outline");
+    expect(kinds).toContain("route");
+    expect(kinds).toContain("observed_track");
+    expect(kinds.filter(k => k === "waypoint")).toHaveLength(2);
+    expect(kinds).not.toContain("aircraft");
+    const coverage = result.features.find(f => f.properties.kind === "survey");
+    expect(coverage.geometry.coordinates[0][0]).toEqual([77.59, 12.97]);
+    expect(coverage.geometry.coordinates[0].at(-1)).toEqual([77.59, 12.97]);
+  });
+
   it("draws visible, numbered HTML markers and resizes the underlying map", () => {
     const props = {
       polygon: [] as MapPoint[], route: route.slice(0, 1),
