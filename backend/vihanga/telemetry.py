@@ -411,6 +411,12 @@ class LinkManager:
             # No alias to primary's parser or serial file handle is created.
             standby = LinkManager()
             await getattr(standby, method)(request)
+            # The primary may have been disconnected while opening a
+            # secondary TCP or serial socket. Do not retain an orphaned
+            # standby receiver if its parent session changed.
+            if self.sessions.get(vehicle_id) is not primary:
+                await standby.stop(vehicle_id)
+                raise ValueError("Primary receiver changed during standby setup")
             self.standby_managers[vehicle_id] = standby
             return self.snapshot(vehicle_id)
 
