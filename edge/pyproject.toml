@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vihanga-edge"
+version = "0.1.0"
+description = "Independent Vihanga aircraft-to-cloud receive-only telemetry agent"
+requires-python = ">=3.12"
+dependencies = ["pyserial>=3.5,<4", "websockets>=14,<17", "pymavlink>=2.4.42,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+vihanga-edge = "vihanga_edge.agent:main"
+
+[tool.setuptools.packages.find]
+include = ["vihanga_edge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
