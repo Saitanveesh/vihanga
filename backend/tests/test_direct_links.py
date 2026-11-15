@@ -31,7 +31,6 @@ def test_mavlink_framing_survives_one_byte_serial_chunks():
     assert valid == 2
     assert projector.snapshot()["heartbeat_fresh"]
     assert projector.snapshot()["attitude_fresh"]
-    assert projector.snapshot()["flight_control_enabled"] if False else True
 
 
 def test_local_connection_models_disallow_arbitrary_serial_paths_and_baud():
