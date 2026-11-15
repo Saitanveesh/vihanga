@@ -1,0 +1,23 @@
+[Unit]
+Description=Vihanga Edge MAVLink telemetry uplink (receive-only)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=vihanga
+Group=dialout
+WorkingDirectory=/opt/vihanga/edge
+EnvironmentFile=/etc/vihanga/edge.env
+ExecStart=/opt/vihanga/edge/.venv/bin/vihanga-edge
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
