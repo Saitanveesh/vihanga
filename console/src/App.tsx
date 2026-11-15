@@ -341,18 +341,28 @@ export default function App() {
               title="Fit survey or route to map"
               onClick={() => setFitSignal(x => x + 1)}>Fit route</button>
           </div>
+          {(section === "FLIGHT" || section === "PLAN") && <div className="operation-ribbon" role="toolbar" aria-label="Mission and aircraft operations">
+            <button onClick={() => { navigate("PLAN"); setDrawMode("POLYGON"); }} title="Draw survey boundary">▦ <span>Survey</span></button>
+            <button onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints">⌖ <span>Waypoints</span></button>
+            <button onClick={() => navigate("HISTORY")} title="View stored mission drafts">◷ <span>Routes</span></button>
+            <span className="ribbon-divider"/>
+            <button disabled title="ARM requires an authorized physical command link">ARM</button>
+            <button disabled title="TAKEOFF requires an authorized physical command link">TAKEOFF</button>
+            <button disabled title="RTL requires an authorized physical command link">RTL</button>
+            <button disabled title="LAND requires an authorized physical command link">LAND</button>
+            <span className="ribbon-state">COMMANDS LOCKED</span>
+          </div>}
           {section === "FLIGHT" && <div className="float-panel flight-summary">
-            <div className="panel-title"><h2>Aircraft status</h2><span>{active?.label || "Not selected"}</span></div>
+            <div className="panel-title"><h2>Flight status</h2><span>{active?.label || "No aircraft selected"}</span></div>
             <div className="status-rows">
-              <div><span>Link</span><strong>{linkLabel(sample?.status)}</strong></div>
-              <div><span>Flight mode</span><strong>{sample?.mode || "UNKNOWN"}</strong></div>
+              <div><span>Connection</span><strong>{linkLabel(sample?.status)}</strong></div>
+              <div><span>Flight mode</span><strong>{sample?.heartbeat_fresh ? sample.mode || "UNKNOWN" : "NO DATA"}</strong></div>
               <div><span>Arm state</span><strong>{sample?.armed == null ? "UNKNOWN" : sample.armed ? "ARMED" : "DISARMED"}</strong></div>
-              <div><span>GNSS fix</span><strong>{sample?.gps_fix_type == null ? "UNAVAILABLE" : "TYPE " + sample.gps_fix_type}</strong></div>
-              <div><span>Satellites</span><strong>{sample?.satellites ?? "—"}</strong></div>
-              <div><span>Data age</span><strong>{sample?.age_ms == null ? "—" : sample.age_ms + " ms"}</strong></div>
-              <div><span>FC heartbeat</span><strong>{sample?.heartbeat_fresh ? "FRESH" : "MISSING / STALE"}</strong></div>
+              <div><span>GNSS</span><strong>{sample?.gps_fix_type == null ? "NO FIX DATA" : "FIX " + sample.gps_fix_type + " / " + (sample.satellites ?? "—") + " SAT"}</strong></div>
+              <div><span>Telemetry age</span><strong>{sample?.age_ms == null ? "—" : sample.age_ms + " ms"}</strong></div>
+              <div><span>FC heartbeat</span><strong>{sample?.heartbeat_fresh ? "RECEIVING" : "MISSING / STALE"}</strong></div>
             </div>
-            <div className="panel-footnote">Telemetry is derived from received MAVLink frames. Flight commands are not available in this build.</div>
+            <p className="panel-footnote">Only validated, fresh MAVLink telemetry is shown. Aircraft control is unavailable in this software release.</p>
           </div>}
           {section === "PLAN" && <section className="float-panel plan-panel">
             <div className="panel-title"><h2>Route planning</h2><span>Draft / not dispatched</span></div>
