@@ -569,6 +569,9 @@ class LinkManager:
                 session.state != "CONNECTED" or session.serial_port is None or
                 session.task is None or session.task.done()):
             raise ValueError("Connect a local serial receiver before bench requests")
+        sample = session.projector.snapshot()
+        if not sample["heartbeat_fresh"] or sample["armed"] is not False:
+            raise ValueError("Fresh disarmed FC heartbeat required for bench reads")
         # Defense in depth: the serial owner performs the allowlist encoding.
         # Callers never provide arbitrary MAVLink bytes for transmission.
         packet = encode_bench_query(query, session.projector.system_id)
