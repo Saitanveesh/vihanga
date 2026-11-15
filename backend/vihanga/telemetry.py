@@ -154,6 +154,9 @@ class MAVLinkProjector:
                         self._set(name, round(value, 2), now)
             elif typ == "GPS_RAW_INT":
                 self._set("gps_fix_type", int(msg.fix_type), now)
+                if int(msg.fix_type) < 3:
+                    self.fields.pop("latitude_raw", None)
+                    self.fields.pop("longitude_raw", None)
                 sat = int(msg.satellites_visible)
                 if 0 <= sat <= 100:
                     self._set("satellites", sat, now)
@@ -161,12 +164,12 @@ class MAVLinkProjector:
                 lat, lon = msg.lat / 1e7, msg.lon / 1e7
                 if (-90 <= lat <= 90 and -180 <= lon <= 180 and
                         (lat != 0 or lon != 0)):
-                    self._set("latitude_raw", lat, now)
-                    self._set("longitude_raw", lon, now)
                     recent_fix = self.fields.get("gps_fix_type")
                     if recent_fix and recent_fix[0] >= 3 and now - recent_fix[1] <= 5.0:
-                        # Real GNSS points only. A position without a valid GPS fix
-                        # never becomes part of the flight track.
+                        # A position without a valid recent GPS fix must not
+                        # appear on either the live map or the flight track.
+                        self._set("latitude_raw", lat, now)
+                        self._set("longitude_raw", lon, now)
                         latest = self.track[-1] if self.track else None
                         if latest is None or abs(lat-latest[0]) > 1e-7 or abs(lon-latest[1]) > 1e-7:
                             self.track.append((round(lat, 7), round(lon, 7), now))
