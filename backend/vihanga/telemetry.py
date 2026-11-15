@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import serial
+from vihanga.operator_contract import BenchQuery, encode_bench_query
 from pymavlink import mavutil
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -555,7 +556,7 @@ class LinkManager:
             if session.serial_port is not None:
                 session.serial_port.close()
 
-    async def bench_request(self, vehicle_id: str, packet: bytes) -> dict:
+    async def bench_request(self, vehicle_id: str, query: BenchQuery) -> dict:
         """Send a non-actuating read request through the existing serial owner.
 
         A serial write is not FC acknowledgement or command completion.
@@ -568,9 +569,11 @@ class LinkManager:
                 session.state != "CONNECTED" or session.serial_port is None or
                 session.task is None or session.task.done()):
             raise ValueError("Connect a local serial receiver before bench requests")
-        if (not isinstance(packet, bytes) or len(packet) > 300 or
-                session.bench_queue.full()):
-            raise ValueError("Bench request rejected or queue full")
+        # Defense in depth: the serial owner performs the allowlist encoding.
+        # Callers never provide arbitrary MAVLink bytes for transmission.
+        packet = encode_bench_query(query, session.projector.system_id)
+        if session.bench_queue.full():
+            raise ValueError("Bench request queue full")
         now = time.monotonic()
         if session.bench_last_request_at >= 0 and now - session.bench_last_request_at < 0.25:
             raise ValueError("Bench read request rate limit")
