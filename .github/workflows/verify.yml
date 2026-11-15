@@ -104,6 +104,8 @@ jobs:
           node-version: '22'
       - name: Install console dependencies
         run: npm install --no-audit --no-fund
+      - name: React operator component regressions
+        run: npm run test
       - name: TypeScript and production bundle
         run: npm run build
 
