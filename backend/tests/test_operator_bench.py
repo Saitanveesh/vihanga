@@ -26,14 +26,14 @@ def test_complete_operation_catalog_cannot_expose_actuation():
     codes = {item["code"]: item for item in overview["operations"]}
     assert len(codes) == len(OPERATIONS)
     for name in ("ARM", "DISARM", "TAKEOFF", "LAND", "RTL", "SET_MODE",
-                 "GUIDED_TARGET", "MISSION_UPLOAD", "MISSION_START",
+                 "GUIDED_TARGET", "MISSION_UPLOAD", "MISSION_START", "MISSION_DOWNLOAD",
                  "PARAM_WRITE", "CALIBRATE_ESC", "MOTOR_TEST",
                  "RC_OVERRIDE", "REBOOT_FC"):
         assert codes[name]["enabled"] is False
         assert codes[name]["status"] == "LOCKED"
         assert codes[name]["bench_query"] is None
     for name in ("FC_VERSION", "GPS", "GPS2", "EKF", "PARAM_READ",
-                 "PARAM_LIST", "MISSION_DOWNLOAD", "RC"):
+                 "PARAM_LIST", "MISSION_SUMMARY", "RC"):
         assert codes[name]["enabled"] is True
         assert codes[name]["status"] == "READY"
 
