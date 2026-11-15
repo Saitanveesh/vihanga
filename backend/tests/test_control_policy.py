@@ -45,7 +45,8 @@ def test_sitl_rtl_command_is_real_mavlink_and_requires_ack_plus_observed_mode():
     assert authority.accept_fc_ack(command.command_id, ack, source_system=1)
     assert command.status == Status.FC_ACKNOWLEDGED
     assert not authority.observe(command.command_id, health)
-    assert authority.observe(command.command_id, replace(health, mode="RTL"))
+    instant[0] += .1
+    assert authority.observe(command.command_id, replace(health, mode="RTL", observed_at=instant[0]))
     assert command.status == Status.OBSERVED
     assert command.vehicle_id not in authority.active
 
@@ -111,7 +112,8 @@ def test_sitl_takeoff_requires_verified_arm_nav_and_reasonable_altitude():
     ack = mavlink.MAVLink_command_ack_message(mavlink.MAV_CMD_NAV_TAKEOFF, 0)
     assert authority.accept_fc_ack(command.command_id, ack, source_system=1)
     assert not authority.observe(command.command_id, replace(health, altitude_m=2))
-    assert authority.observe(command.command_id, replace(health, altitude_m=12))
+    instant[0] += .1
+    assert authority.observe(command.command_id, replace(health, altitude_m=12, observed_at=instant[0]))
 
 
 def test_no_flight_command_route_exists_in_gcs_api(tmp_path):
@@ -119,3 +121,24 @@ def test_no_flight_command_route_exists_in_gcs_api(tmp_path):
     from vihanga.app import create_app
     c = TestClient(create_app(tmp_path / "policy.sqlite3"))
     assert c.post("/api/v1/control/execute", json={"action":"ARM"}).status_code == 404
+
+
+def test_post_ack_observation_requires_fresh_real_time_evidence():
+    authority, lease, health, instant = setup()
+    command = issue(authority, lease, health)
+    authority.encode(command.command_id)
+    ack = mavlink.MAVLink_command_ack_message(mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH, 0)
+    assert authority.accept_fc_ack(command.command_id, ack, source_system=1)
+    assert not authority.observe(command.command_id, replace(health, mode="RTL"))
+    assert not authority.observe(command.command_id, replace(health, mode="RTL", observed_at=float("nan")))
+    assert not authority.observe(command.command_id, replace(health, mode="RTL", observed_at=101.0))
+    instant[0] += 2.1
+    assert not authority.observe(command.command_id, replace(health, mode="RTL", observed_at=100.05))
+    assert authority.observe(command.command_id, replace(health, mode="RTL", observed_at=instant[0]))
+    assert command.status == Status.OBSERVED
+
+
+def test_nonfinite_health_timestamp_cannot_grant_authority():
+    authority, lease, health, _ = setup()
+    with pytest.raises(Refused, match="STALE_HEALTH"):
+        issue(authority, lease, replace(health, observed_at=float("nan")))
