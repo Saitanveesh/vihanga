@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+data/
+*.sqlite3
+console/node_modules/
+console/dist/
+*.log
+.env
+.env.*
+!.env.example

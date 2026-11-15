@@ -1,0 +1,1 @@
+"""Independent Vihanga control-plane foundation. No aircraft command implementation."""
