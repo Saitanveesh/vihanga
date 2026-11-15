@@ -102,3 +102,37 @@ def test_development_api_rejects_dns_rebinding_host_and_allows_loopback(tmp_path
     assert c.get("/api/v1/health", headers={"Host": "external.attacker.example"}).status_code == 400
     assert c.get("/api/v1/fleet/telemetry",
                  headers={"Host": "external.attacker.example"}).status_code == 400
+
+
+
+def test_backup_endpoints_keep_primary_and_no_command_route(tmp_path):
+    app = create_app(tmp_path / "dual-receiver.sqlite3")
+    with TestClient(app) as c:
+        vehicle = {"vehicle_id": "AH-HW-001", "label": "Bench aircraft",
+                   "autopilot": "ARDUPILOT", "interface": "UART"}
+        assert c.post("/api/v1/vehicles", json=vehicle).status_code == 201
+        primary = c.post("/api/v1/links/udp", json={
+            "vehicle_id": "AH-HW-001", "port": 15648, "fc_system_id": 1})
+        assert primary.status_code == 200, primary.text
+        data = primary.json()
+        assert data["active_source"] == "PRIMARY"
+        assert data["backup_status"] == "NOT_CONFIGURED"
+        assert data["flight_control_enabled"] is False
+
+        duplicate = c.post("/api/v1/links/backup/udp", json={
+            "vehicle_id": "AH-HW-001", "port": 15649, "fc_system_id": 1})
+        assert duplicate.status_code == 422
+        assert "different transport" in duplicate.json()["detail"]
+        wrong_identity = c.post("/api/v1/links/backup/tcp", json={
+            "vehicle_id": "AH-HW-001", "port": 15649, "fc_system_id": 2})
+        assert wrong_identity.status_code == 422
+        assert "system ID" in wrong_identity.json()["detail"]
+
+        # A second viewer cannot be selected until real, validated packets
+        # arrive from that independent flight-controller receive path.
+        refused = c.post("/api/v1/links/select/AH-HW-001/BACKUP")
+        assert refused.status_code == 409
+        assert c.get("/api/v1/telemetry/AH-HW-001").json()["active_source"] == "PRIMARY"
+        assert c.delete("/api/v1/links/backup/AH-HW-001").json()["status"] == "WAITING_FOR_FRAMES"
+        assert c.delete("/api/v1/links/AH-HW-001").json()["status"] == "OFFLINE"
+        assert c.post("/api/v1/flight-control/arm", json={"vehicle_id":"AH-HW-001"}).status_code == 404

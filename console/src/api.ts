@@ -79,6 +79,25 @@ export interface Telemetry {
   gps2_fix_type: number | null;
   gps2_satellites: number | null;
   battery_current_a: number | null;
+  radio_rssi_raw?: number | null;
+  radio_remote_rssi_raw?: number | null;
+  radio_noise_raw?: number | null;
+  radio_rx_errors?: number | null;
+  radio_fixed_packets?: number | null;
+  radio_txbuf_raw?: number | null;
+  sensor_health?: Record<string, "HEALTHY" | "FAULT" | "DISABLED" | "ABSENT"> | null;
+  active_source?: "PRIMARY" | "BACKUP";
+  primary_status?: string;
+  primary_transport?: string | null;
+  primary_heartbeat_fresh?: boolean;
+  primary_attitude_fresh?: boolean;
+  backup_status?: string;
+  backup_transport?: string | null;
+  backup_error_code?: string | null;
+  backup_heartbeat_fresh?: boolean;
+  backup_attitude_fresh?: boolean;
+  backup_frame_rate_5s_hz?: number | null;
+  backup_age_ms?: number | null;
   airspeed_mps: number | null;
   throttle_pct: number | null;
   frame_rate_5s_hz: number;
@@ -157,6 +176,17 @@ export const connectCloud = (input: CloudSettings) => jsonPost<Telemetry>("links
 export const connectUDP = (input: UDPSettings) => jsonPost<Telemetry>("links/udp", input);
 export const connectTCP = (input: TCPSettings) => jsonPost<Telemetry>("links/tcp", input);
 export const connectSerial = (input: SerialSettings) => jsonPost<Telemetry>("links/serial", input);
+export type ReceiveTransport = "BROKER" | "CLOUD" | "SERIAL" | "UDP" | "TCP";
+export type ReceiveConfig = BrokerSettings | CloudSettings | UDPSettings | TCPSettings | SerialSettings;
+export const connectBackupBroker = (input: BrokerSettings) => jsonPost<Telemetry>("links/backup/broker", input);
+export const connectBackupCloud = (input: CloudSettings) => jsonPost<Telemetry>("links/backup/cloud", input);
+export const connectBackupUDP = (input: UDPSettings) => jsonPost<Telemetry>("links/backup/udp", input);
+export const connectBackupTCP = (input: TCPSettings) => jsonPost<Telemetry>("links/backup/tcp", input);
+export const connectBackupSerial = (input: SerialSettings) => jsonPost<Telemetry>("links/backup/serial", input);
+export const activateTelemetrySource = (id: string, role: "PRIMARY" | "BACKUP") =>
+  jsonPost<Telemetry>("links/select/" + encodeURIComponent(id) + "/" + role, {});
+export const disconnectBackup = (id: string) =>
+  request<Telemetry>("links/backup/" + encodeURIComponent(id), {method: "DELETE"});
 export const disconnectLink = (id: string) => request<Telemetry>("links/" + encodeURIComponent(id), {method: "DELETE"});
 
 

@@ -3,7 +3,7 @@
 
 Vihanga is an independent React/TypeScript operator console with Python geospatial planning, local MAVLink telemetry ingestion, a vehicle-isolated cloud telemetry broker and a Raspberry Pi edge receiver. It does **not** import, embed or depend on Mission Planner. Older Mission Planner-based work is retained separately for reference.
 
-**Engineering baseline: v0.16 (reference-led operator design), 15 November 2026.** The test suite exercises real MAVLink2 packet serialization and decoding, but there has been no demonstrated physical command downlink through this new stack. **Do not use this repository to conduct an aircraft flight.**
+**Engineering baseline: v0.17 (redundant receive-only telemetry and diagnostics), 15 November 2026.** The test suite exercises real MAVLink2 packet serialization and decoding, but there has been no demonstrated physical command downlink through this new stack. **Do not use this repository to conduct an aircraft flight.**
 
 ## Capability and verification matrix
 
@@ -12,7 +12,8 @@ Vihanga is an independent React/TypeScript operator console with Python geospati
 | Operator console | MapLibre map, fleet selection, planning, survey geometry, telemetry instruments, live status, observed flight trails, video link | React TypeScript build and component regressions; on-screen operator acceptance still pending |
 | Planning | Aircraft-specific draft missions, survey lanes, stored revisions, route measurement | API/geometry unit tests; no terrain, obstacles or airspace clearance |
 | Local FC telemetry | Receive-only USB serial, TCP loopback and UDP SITL; parser checks FC SYSID | Synthetic fixtures encoded as real MAVLink2 bytes, local socket and fake serial tests |
-| Operator diagnostic workspace | Fleet telemetry, GPS2/power/airspeed/throttle diagnostics, full-width satellite map, interactive selected route pins, compact survey inspector, collapsible aircraft/context panels and dedicated camera workstation | API and React regressions; real-world UI QA pending |
+| Operator diagnostic workspace | Fleet telemetry, RF raw link status, reported sensor health, GPS2/power/airspeed/throttle, collapsible right diagnostics drawer, full-width satellite map and camera workstation | UI/component and API regressions; on-screen QA pending |
+| Primary and standby receivers | Two independent receive-only MAVLink transports for one registered aircraft, manually selectable after fresh heartbeat and attitude | Local UDP/TCP integration and API tests; physical radio/Oracle failover not validated |
 | Independent cloud broker | Authenticated device/viewer WSS endpoints, vehicle and role isolation, CRC checking, bounded fan-out | Automated WebSocket and integration tests; real hosted TLS deployment pending |
 | Pi edge agent | One-owner serial access, validated receive-only packets, bounded WSS reconnection, systemd sample | Automated tests; physical UART ownership, wiring and long soak pending |
 | Cloud -> local GCS | Dedicated viewer client, freshness handling, per-aircraft WebSocket telemetry and GNSS tracks | Protocol integration plus local client tests; real private network end-to-end soak pending |
@@ -46,6 +47,8 @@ Open **http://127.0.0.1:5173** (console) and **http://127.0.0.1:8010/api/v1/heal
 3. For the independent cloud broker choose Vihanga Cloud and provide the private HTTPS broker origin plus the vehicle's viewer token. Provision the broker and edge separately according to [staging instructions](docs/STAGING_DEPLOYMENT.md).
 4. For the pre-existing private Oracle relay, use the separate private-cloud connection type, with its relay-specific operator login. This legacy viewer uses a different protocol and credential type.
 5. A **LIVE** indication requires fresh heartbeat and attitude packets from the expected FC identity. Positions require a validated GPS fix. Disconnect and reconnection invalidate cached instrument data.
+6. In **Connections**, configure a PRIMARY receiver first and a BACKUP of a different transport class with the same FC MAVLink system ID. The backup remains independently connected but **is not automatically selected**. Open **Diagnostics** to inspect both receivers; choose **Use backup** only after it reports fresh HEARTBEAT and ATTITUDE. Use **Restore primary** when the primary independently becomes LIVE. Removing a backup does not send any aircraft command. A secondary serial connection needs its own COM port; other applications must release it.
+7. RF RSSI values are uncalibrated MAVLink RADIO_STATUS readings (not percent or dBm). Sensor health comes only from actual SYS_STATUS bitmasks and displays unavailable where unreported.
 
 Create survey polygons and waypoint missions in PLAN. They are **offline drafts** and must be independently checked for terrain, altitude limits, obstacles, geofences and airspace before any future mission upload. The camera tab opens a configured private viewing endpoint; it does not imply a camera control or flight command channel.
 
@@ -90,7 +93,7 @@ GitHub Actions separately checks backend, cloud, edge, the cross-service packet 
 ## Release gates still outstanding
 
 - Demonstrate Pi -> independent cloud broker -> authenticated GCS viewer with real Pixhawk UART telemetry. Verify a moving HUD against direct USB, with no command traffic.
-- Validate connection loss, process restarts, token rotation, 24-hour soak, bounded queues and multi-aircraft load. Report p50/p95/p99 packet age, throughput, drop counts and host resources.
+- Validate independent primary/backup receiver operation with physical Pixhawk and backup modem, manual source selection, connection loss, process restarts, token rotation, 24-hour soak, bounded queues and multi-aircraft load. Report p50/p95/p99 packet age, throughput, drop counts and host resources.
 - Verify camera streaming under traffic load, GNSS validity, survey geometry, map license and operator workflow on the target Windows machine.
 - Before any physical control path: operator identity/MFA, short-lived pilot authority, vehicle-side safety arbiter, RC/manual precedence, link-loss policy, authenticated acknowledgements, HIL, propeller-free bench and supervised range acceptance.
 
