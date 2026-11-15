@@ -16,9 +16,6 @@ const sections: { label: Section; icon: string }[] = [
   { label: "HISTORY", icon: "◷" }, { label: "VIDEO", icon: "▣" }
 ];
 
-function value(n: number | null | undefined, decimals = 1) {
-  return n == null ? "—" : n.toFixed(decimals);
-}
 function linkLabel(status?: string) {
   return status === "LIVE" ? "LIVE TELEMETRY" :
     status === "PARTIAL" ? "PARTIAL TELEMETRY" :
