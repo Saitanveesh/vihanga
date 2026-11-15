@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
+import maplibregl, { type GeoJSONSource, type Map as MapLibreMap, type Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 export type MapPoint = { latitude: number; longitude: number };
@@ -41,7 +41,7 @@ const imagery = {
   layers: [{ id: "base", type: "raster", source: "tiles" }]
 };
 
-function collection(polygon: MapPoint[], route: RoutePoint[], position: MapPoint | null, track: MapPoint[]) {
+export function buildGeometry(polygon: MapPoint[], route: RoutePoint[], position: MapPoint | null, track: MapPoint[]) {
   const features: any[] = [];
   const xy = (point: MapPoint) => [point.longitude, point.latitude];
   if (polygon.length >= 3) {
@@ -80,11 +80,13 @@ export default function GeoMap({
 }: Props) {
   const mount = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const pointMarkers = useRef<MapLibreMarker[]>([]);
+  const currentBasemap = useRef(basemap);
   const callback = useRef(onMapClick);
   const vertexCallback = useRef(onVertexMove);
   const geometryRef = useRef({polygon,route});
   geometryRef.current = {polygon,route};
-  const data = useRef<any>(collection(polygon, route, position, track));
+  const data = useRef<any>(buildGeometry(polygon, route, position, track));
   const drawingRef = useRef(drawing);
   const movingVertex = useRef<number | null>(null);
   callback.current = onMapClick;
@@ -118,20 +120,37 @@ export default function GeoMap({
       map.addLayer({ id: "route-line", type: "line", source: "vihanga-geometry",
         filter: ["==", ["get", "kind"], "route"],
         paint: { "line-color": "#ffcf64", "line-width": 3 } });
-      map.addLayer({ id: "vertices", type: "circle", source: "vihanga-geometry",
-        filter: ["in", ["get", "kind"], ["literal", ["vertex", "waypoint"]]],
-        paint: { "circle-radius": 5, "circle-color": "#f0faf7", "circle-stroke-color": "#153047",
-          "circle-stroke-width": 1.5 } });
+      map.addLayer({ id: "boundary-handles", type: "circle", source: "vihanga-geometry",
+        filter: ["==", ["get", "kind"], "vertex"],
+        paint: { "circle-radius": 6, "circle-color": "#f7e9cd", "circle-stroke-color": "#284650",
+          "circle-stroke-width": 2 } });
+      map.addLayer({ id: "waypoint-dots", type: "circle", source: "vihanga-geometry",
+        filter: ["==", ["get", "kind"], "waypoint"],
+        paint: { "circle-radius": 8, "circle-color": "#e6b25e",
+                 "circle-stroke-color": "#13212b", "circle-stroke-width": 3 } });
       map.addLayer({ id: "live-aircraft", type: "circle", source: "vihanga-geometry",
         filter: ["==", ["get", "kind"], "aircraft"],
         paint: { "circle-radius": 10, "circle-color": "#2ecbff", "circle-stroke-color": "#fff",
           "circle-stroke-width": 3 } });
     };
     map.on("style.load", install);
-    map.on("mousedown", "vertices", event => {
+    if (map.isStyleLoaded()) install();
+
+    // The map stage can grow after first React paint or after a sidebar
+    // collapses. Without resize(), WebGL retains the previous canvas size,
+    // leaving an empty stripe at the right/bottom of the map.
+    const resize = () => { if (mapRef.current === map) map.resize(); };
+    const observer = typeof ResizeObserver === "undefined" ? null :
+      new ResizeObserver(resize);
+    observer?.observe(mount.current);
+    window.addEventListener("resize", resize);
+    map.on("load", resize);
+    const firstFrame = window.requestAnimationFrame(resize);
+    const secondFrame = window.setTimeout(resize, 160);
+    map.on("mousedown", "boundary-handles", event => {
       if (!drawingRef.current || !event.features?.length) return;
       const record = event.features[0].properties;
-      if (record?.kind !== "vertex" || !Number.isInteger(record.index)) return;
+      if (record?.kind !== "vertex" || !Number.isInteger(Number(record.index))) return;
       movingVertex.current = Number(record.index) - 1;
       map.dragPan.disable();
       event.preventDefault();
@@ -158,20 +177,62 @@ export default function GeoMap({
           longitude: +event.lngLat.lng.toFixed(8) });
       }
     });
-    return () => { map.remove(); mapRef.current = null; };
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", resize);
+      window.cancelAnimationFrame(firstFrame);
+      window.clearTimeout(secondFrame);
+      pointMarkers.current.forEach(marker => marker.remove());
+      pointMarkers.current = [];
+      map.remove();
+      mapRef.current = null;
+    };
     // One stable map instance. Style changes are applied by a separate effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (map) map.setStyle((basemap === "satellite" ? imagery : street) as any);
+    if (map && currentBasemap.current !== basemap) {
+      currentBasemap.current = basemap;
+      map.setStyle((basemap === "satellite" ? imagery : street) as any);
+    }
   }, [basemap]);
 
   useEffect(() => {
     const source = mapRef.current?.getSource("vihanga-geometry") as GeoJSONSource | undefined;
     if (source) source.setData(data.current);
   }, [polygon, route, position, track]);
+
+  useEffect(() => {
+    pointMarkers.current.forEach(marker => marker.remove());
+    pointMarkers.current = [];
+    const map = mapRef.current;
+    if (!map) return;
+
+    // HTML overlay pins remain visible on both satellite and street layers,
+    // including during style reloads. All points receive an actual marker;
+    // large coverage missions abbreviate labels to prevent visual clutter.
+    const stride = Math.max(1, Math.ceil(route.length / 35));
+    route.forEach((point, index) => {
+      const node = document.createElement("div");
+      const numbered = route.length <= 35 || index === 0 ||
+        index === route.length - 1 || index % stride === 0;
+      node.className = "vihanga-waypoint" + (numbered ? "" : " compact");
+      node.textContent = numbered ? String(index + 1) : "";
+      node.setAttribute("aria-label", "Waypoint " + (index + 1));
+      node.title = "WP " + (index + 1) + " · " +
+        point.latitude.toFixed(6) + ", " + point.longitude.toFixed(6);
+      node.addEventListener("click", event => event.stopPropagation());
+      const marker = new maplibregl.Marker({element: node, anchor: "center"})
+        .setLngLat([point.longitude, point.latitude]).addTo(map);
+      pointMarkers.current.push(marker);
+    });
+    return () => {
+      pointMarkers.current.forEach(marker => marker.remove());
+      pointMarkers.current = [];
+    };
+  }, [route]);
 
   useEffect(() => {
     const map = mapRef.current;
