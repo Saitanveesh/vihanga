@@ -4,7 +4,7 @@ import FlightInstruments from "./FlightInstruments";
 import UiIcon, { type IconName } from "./UiIcon";
 import {
   connectBroker, connectCloud, connectUDP, connectTCP, connectSerial, disconnectLink, getHealth, getMissions,
-  getTelemetry, getFleetTelemetry, getObservedTrack, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
+  getFleetTelemetry, getObservedTrack, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
   type Health, type Mission, type SurveyPreview, type Telemetry,
   type Vehicle, type VehicleCreate, type Waypoint
 } from "./api";
@@ -364,10 +364,10 @@ export default function App() {
           {sections.map(item => <button key={item.label} type="button"
             className={"rail-item " + (section === item.label ? "selected" : "")}
             onClick={() => navigate(item.label)} aria-current={section === item.label ? "page" : undefined}>
-            <span className="rail-icon">{item.icon}</span><small>{item.label}</small>
+            <span className="rail-icon"><UiIcon name={item.icon} size={21}/></span><small>{item.label}</small>
           </button>)}
         </nav>
-        <div className="rail-foot">GCS / 0.2</div>
+        <div className="rail-foot">GCS / 0.14</div>
       </aside>
       <aside className="fleetbar">
         <div className="fleetbar-head"><span>AIRCRAFT</span><strong>{vehicles.length}</strong></div>
@@ -406,7 +406,7 @@ export default function App() {
           <div className="toolbar-leading">
             <span className="product-label">VIHANGA / OPERATIONS</span>
             <span className="toolbar-separator">/</span>
-            <strong>{section === "PLAN" ? "MISSION PLANNING" : section}</strong>
+            <strong>{section === "PLAN" ? "MISSION PLANNING" : section === "VIDEO" ? "LIVE VIDEO" : section === "LINK" ? "LINK HEALTH" : section}</strong>
             <span className="toolbar-subtitle">{active?.label || "No aircraft selected"}</span>
           </div>
           <div className="toolbar-right">
@@ -433,15 +433,11 @@ export default function App() {
               onClick={() => setFitSignal(x => x + 1)}>Fit route</button>
           </div>
           {(section === "FLIGHT" || section === "PLAN") && <div className="operation-ribbon" role="toolbar" aria-label="Mission and aircraft operations">
-            <button onClick={() => { navigate("PLAN"); setDrawMode("POLYGON"); }} title="Draw survey boundary">▦ <span>Survey</span></button>
-            <button onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints">⌖ <span>Waypoints</span></button>
-            <button onClick={() => navigate("HISTORY")} title="View stored mission drafts">◷ <span>Routes</span></button>
+            <button onClick={() => { navigate("PLAN"); setDrawMode("POLYGON"); }} title="Draw survey boundary"><UiIcon name="plan" size={15}/> <span>Area</span></button>
+            <button onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints"><UiIcon name="map" size={15}/> <span>Waypoints</span></button>
+            <button onClick={() => navigate("HISTORY")} title="View stored mission drafts"><UiIcon name="history" size={15}/> <span>Routes</span></button>
             <span className="ribbon-divider"/>
-            <button disabled title="ARM requires an authorized physical command link">ARM</button>
-            <button disabled title="TAKEOFF requires an authorized physical command link">TAKEOFF</button>
-            <button disabled title="RTL requires an authorized physical command link">RTL</button>
-            <button disabled title="LAND requires an authorized physical command link">LAND</button>
-            <span className="ribbon-state">COMMANDS LOCKED</span>
+            <span className="command-lock" title="This telemetry release contains no physical command transport"><UiIcon name="lock" size={14}/> Flight controls unavailable</span>
           </div>}
           {section === "FLIGHT" && <div className="float-panel flight-summary">
             <div className="panel-title"><h2>Flight status</h2><span>{active?.label || "No aircraft selected"}</span></div>
@@ -585,6 +581,7 @@ export default function App() {
               <div><span>Transport</span><strong>{sample?.transport || "NONE"}</strong></div>
               <div><span>Status</span><strong>{linkLabel(sample?.status)}</strong></div>
               <div><span>Frames received</span><strong>{sample?.frames_total ?? 0}</strong></div>
+              <div><span>Frame rate (5 s)</span><strong>{sample ? sample.frame_rate_5s_hz.toFixed(2) + " Hz" : "—"}</strong></div>
               <div><span>Observed track points</span><strong>{observedTrack.length}</strong></div>
               <div><span>Local telemetry viewer</span><strong>{liveTransportConnected ? "WEBSOCKET ACTIVE" : "POLLING"}</strong></div>
               <div><span>Rejected frames</span><strong>{sample?.rejected_frames ?? 0}</strong></div>
@@ -612,7 +609,8 @@ export default function App() {
             <p className="panel-footnote">This is a real record of stored mission drafts, not a log of flights that did not occur.</p>
           </section>}
           {section === "VIDEO" && <section className="float-panel utility-panel video-panel">
-            <div className="panel-title"><h2>Camera</h2><span>Independent video path</span></div>
+            <div className="panel-title"><h2><UiIcon name="video" size={20}/> Camera workstation</h2>
+              <span>PRIVATE WEBRTC / {selected || "NO AIRCRAFT"}</span></div>
             <form onSubmit={setVideo} className="form-stack">
               <label>Private stream page (HTTPS)<input value={cameraInput} type="url" required
                 placeholder="https://aircraft.ts.net/cam"
@@ -621,8 +619,8 @@ export default function App() {
             </form>
             {cameraUrl && <div className="video-container">
               <iframe title="Authenticated aircraft camera" src={cameraUrl}
-                referrerPolicy="no-referrer" allow="autoplay; fullscreen"/>
-              <a href={cameraUrl} target="_blank" rel="noreferrer">Open camera in separate window</a>
+                referrerPolicy="no-referrer" allow="autoplay; fullscreen" allowFullScreen/>
+              <a href={cameraUrl} target="_blank" rel="noopener noreferrer">Open full camera page ↗</a>
             </div>}
             {!cameraUrl && <p className="panel-footnote">Enter an actual authenticated MediaMTX/WebRTC camera page. No stock video is displayed.</p>}
           </section>}
