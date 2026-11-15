@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import GeoMap, { type MapPoint } from "./GeoMap";
 import FlightInstruments from "./FlightInstruments";
+import OperationsPanel from "./OperationsPanel";
 import UiIcon, { type IconName } from "./UiIcon";
 import {
-  connectBroker, connectCloud, connectUDP, connectTCP, connectSerial, disconnectLink, getHealth, getMissions,
+  connectBroker, connectCloud, connectUDP, connectTCP, connectSerial, disconnectLink,
+  connectBackupBroker, connectBackupCloud, connectBackupSerial, connectBackupUDP, connectBackupTCP,
+  activateTelemetrySource, disconnectBackup, getHealth, getMissions,
   getFleetTelemetry, getObservedTrack, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
   type Health, type Mission, type SurveyPreview, type Telemetry,
   type Vehicle, type VehicleCreate, type Waypoint
@@ -86,9 +89,17 @@ export default function App() {
   const [missionTitle, setMissionTitle] = useState("");
   const [openedMission, setOpenedMission] = useState<Mission | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
-  const [linkType, setLinkType] = useState<"BROKER" | "CLOUD" | "UDP" | "TCP" | "SERIAL">("BROKER");
-  const [origin, setOrigin] = useState("");
-  const [username, setUsername] = useState("");
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [connectionRole, setConnectionRole] = useState<"PRIMARY" | "BACKUP">("PRIMARY");
+  const [linkType, setLinkType] = useState<"BROKER" | "CLOUD" | "UDP" | "TCP" | "SERIAL">("CLOUD");
+  const [origin, setOrigin] = useState(() => {
+    try { return window.localStorage.getItem("vihanga.receiver.origin.cloud.v1") || ""; }
+    catch { return ""; }
+  });
+  const [username, setUsername] = useState(() => {
+    try { return window.localStorage.getItem("vihanga.receiver.user.cloud.v1") || ""; }
+    catch { return ""; }
+  });
   const [password, setPassword] = useState("");
   const [viewerToken, setViewerToken] = useState("");
   const [port, setPort] = useState(14550);
@@ -321,30 +332,71 @@ export default function App() {
       notify("Saved draft " + draft.revision_sha256.slice(0, 12) + ". No flight-controller upload occurred.");
     } catch (e) { fail(e); } finally { setBusy(false); }
   }
+  function openConnection(role?: "PRIMARY" | "BACKUP") {
+    const requested = role ?? (sample?.primary_transport ? "BACKUP" : "PRIMARY");
+    setConnectionRole(requested);
+    const nextKind = requested === "BACKUP" ? "SERIAL" : "CLOUD";
+    setLinkType(nextKind);
+    try { setOrigin(window.localStorage.getItem("vihanga.receiver.origin." + nextKind.toLowerCase() + ".v1") || ""); }
+    catch { setOrigin(""); }
+    setConnectOpen(true);
+  }
+  function chooseLinkType(kind: "BROKER" | "CLOUD" | "UDP" | "TCP" | "SERIAL") {
+    setLinkType(kind);
+    if (kind === "CLOUD" || kind === "BROKER") {
+      try { setOrigin(window.localStorage.getItem("vihanga.receiver.origin." + kind.toLowerCase() + ".v1") || ""); }
+      catch { setOrigin(""); }
+    }
+  }
   async function startLink(event: FormEvent) {
     event.preventDefault();
     if (!selected) return fail(new Error("Register and select an aircraft first"));
     setBusy(true);
     try {
+      const isBackup = connectionRole === "BACKUP";
       let result: Telemetry;
-      if (linkType === "BROKER") result = await connectBroker({vehicle_id:selected,origin,viewer_token:viewerToken,fc_system_id:sysid});
-      else if (linkType === "CLOUD") result = await connectCloud({vehicle_id:selected,origin,username,password,fc_system_id:sysid});
-      else if (linkType === "SERIAL") result = await connectSerial({vehicle_id:selected,port:serialPort.trim(),baud:serialBaud,fc_system_id:sysid});
-      else if (linkType === "TCP") result = await connectTCP({vehicle_id:selected,port,fc_system_id:sysid});
-      else result = await connectUDP({vehicle_id:selected,port,fc_system_id:sysid});
+      if (linkType === "BROKER") result = await (isBackup ? connectBackupBroker : connectBroker)(
+        {vehicle_id:selected,origin,viewer_token:viewerToken,fc_system_id:sysid});
+      else if (linkType === "CLOUD") result = await (isBackup ? connectBackupCloud : connectCloud)(
+        {vehicle_id:selected,origin,username,password,fc_system_id:sysid});
+      else if (linkType === "SERIAL") result = await (isBackup ? connectBackupSerial : connectSerial)(
+        {vehicle_id:selected,port:serialPort.trim(),baud:serialBaud,fc_system_id:sysid});
+      else if (linkType === "TCP") result = await (isBackup ? connectBackupTCP : connectTCP)(
+        {vehicle_id:selected,port,fc_system_id:sysid});
+      else result = await (isBackup ? connectBackupUDP : connectUDP)(
+        {vehicle_id:selected,port,fc_system_id:sysid});
+      if (linkType === "CLOUD" || linkType === "BROKER") {
+        try {
+          window.localStorage.setItem("vihanga.receiver.origin." + linkType.toLowerCase() + ".v1", origin);
+          if (linkType === "CLOUD")
+            window.localStorage.setItem("vihanga.receiver.user.cloud.v1", username);
+        } catch { /* Browser storage disabled; no credentials saved. */ }
+      }
       setReadings(old => ({ ...old, [selected]: result }));
       setConnectOpen(false);
-      setPassword("");
-      setViewerToken("");
-      notify(linkType === "BROKER" ? "Vihanga Cloud viewer connected or reconnecting. Awaiting real FC telemetry."
-        : linkType === "CLOUD"
-        ? "Private cloud viewer requested. Awaiting verified flight-controller MAVLink."
-        : linkType === "SERIAL"
-          ? "Read-only serial receiver opened on " + serialPort + "."
-          : linkType === "TCP"
-            ? "Read-only TCP receiver connected to 127.0.0.1:" + port + "."
-            : "Local UDP listener bound to 127.0.0.1:" + port + ".");
+      notify((isBackup ? "Standby" : "Primary") +
+        " receiver started. Wait for fresh flight-controller telemetry before selecting it.");
     } catch (e) { fail(e); } finally { setBusy(false); setPassword(""); setViewerToken(""); }
+  }
+  async function chooseSource(role: "PRIMARY" | "BACKUP") {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const result = await activateTelemetrySource(selected, role);
+      setReadings(old => ({...old,[selected]:result}));
+      setObservedTrack([]); // Never display an earlier source's track as the new source.
+      notify(role === "BACKUP" ? "Backup receiver selected for monitoring." : "Primary receiver selected for monitoring.");
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  }
+  async function stopBackupLink() {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const result = await disconnectBackup(selected);
+      setReadings(old => ({ ...old, [selected]: result }));
+      setObservedTrack([]);
+      notify("Standby receiver removed. Primary remains a separate connection.");
+    } catch (e) { fail(e); } finally { setBusy(false); }
   }
   async function stopLink() {
     if (!selected) return;
@@ -352,7 +404,8 @@ export default function App() {
     try {
       const result = await disconnectLink(selected);
       setReadings(old => ({ ...old, [selected]: result }));
-      notify("Aircraft telemetry receiver disconnected.");
+      setObservedTrack([]);
+      notify("Primary and standby telemetry receivers disconnected.");
     } catch (e) { fail(e); } finally { setBusy(false); }
   }
   function setVideo(event: FormEvent) {
