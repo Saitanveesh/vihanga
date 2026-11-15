@@ -46,6 +46,12 @@ async def test_serial_bench_request_is_opt_in_and_exactly_one_read_packet(monkey
         assert fake.written == []
 
         monkeypatch.setenv("VIHANGA_BENCH_READ_REQUESTS","1")
+        with pytest.raises(ValueError, match="Fresh disarmed"):
+            await manager.bench_request(vehicle_id, BenchQuery(query=BenchRequest.FC_VERSION))
+        codec = mavlink.MAVLink(BytesIO())
+        codec.srcSystem, codec.srcComponent = 1, 1
+        heartbeat = mavlink.MAVLink_heartbeat_message(2, 3, 0, 0, 3, 3).pack(codec)
+        assert manager.sessions[vehicle_id].projector.push(heartbeat) == 1
         result = await manager.bench_request(vehicle_id, BenchQuery(query=BenchRequest.FC_VERSION))
         assert result["fc_acknowledged"] is False
         assert result["result"] == "SERIAL_WRITE_COMPLETED"
