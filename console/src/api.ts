@@ -96,6 +96,17 @@ export interface UDPSettings {
   port: number;
   fc_system_id: number;
 }
+export interface TCPSettings {
+  vehicle_id: string;
+  port: number;
+  fc_system_id: number;
+}
+export interface SerialSettings {
+  vehicle_id: string;
+  port: string;
+  baud: number;
+  fc_system_id: number;
+}
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -130,6 +141,8 @@ export const previewCircularSurvey = (input: {
 }) => jsonPost<SurveyPreview>("surveys/circular/preview", input);
 export const connectCloud = (input: CloudSettings) => jsonPost<Telemetry>("links/cloud", input);
 export const connectUDP = (input: UDPSettings) => jsonPost<Telemetry>("links/udp", input);
+export const connectTCP = (input: TCPSettings) => jsonPost<Telemetry>("links/tcp", input);
+export const connectSerial = (input: SerialSettings) => jsonPost<Telemetry>("links/serial", input);
 export const disconnectLink = (id: string) => request<Telemetry>("links/" + encodeURIComponent(id), {method: "DELETE"});
 
 

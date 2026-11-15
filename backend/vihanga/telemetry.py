@@ -12,9 +12,10 @@ import time
 from urllib.parse import urlsplit
 
 import httpx
+import serial
 from pymavlink import mavutil
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from websockets.asyncio.client import connect
 
 
@@ -34,6 +35,26 @@ class UDPConnect(StrictModel):
     vehicle_id: str = Field(pattern=r"^[A-Z0-9][A-Z0-9_-]{2,31}$")
     port: int = Field(ge=1024, le=65535)
     fc_system_id: int = Field(ge=1, le=254)
+
+
+class TCPConnect(StrictModel):
+    vehicle_id: str = Field(pattern=r"^[A-Z0-9][A-Z0-9_-]{2,31}$")
+    port: int = Field(ge=1024, le=65535)
+    fc_system_id: int = Field(ge=1, le=254)
+
+
+class SerialConnect(StrictModel):
+    vehicle_id: str = Field(pattern=r"^[A-Z0-9][A-Z0-9_-]{2,31}$")
+    port: str = Field(pattern=r"^(COM[1-9][0-9]{0,2}|/dev/tty(?:USB|ACM)[0-9]{1,2})$")
+    baud: int = Field(default=57600)
+    fc_system_id: int = Field(ge=1, le=254)
+
+    @field_validator("baud")
+    @classmethod
+    def check_baud(cls, baud: int):
+        if baud not in (9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600):
+            raise ValueError("Unsupported MAVLink baud rate")
+        return baud
 
 
 def validate_private_origin(origin: str) -> str:
@@ -65,7 +86,7 @@ class MAVLinkProjector:
         self.fields[key] = (value, now)
 
     def push(self, raw: bytes) -> int:
-        if not isinstance(raw, bytes) or not 8 <= len(raw) <= 1200:
+        if not isinstance(raw, bytes) or not 1 <= len(raw) <= 1200:
             self.invalid_frames += 1
             return 0
         try:
@@ -176,6 +197,8 @@ class Session:
     error_code: str | None = None
     task: asyncio.Task | None = None
     udp: asyncio.DatagramTransport | None = None
+    serial_port: object | None = None
+    tcp_writer: asyncio.StreamWriter | None = None
 
     def snapshot(self) -> dict:
         sample = self.projector.snapshot()
@@ -223,6 +246,10 @@ class LinkManager:
             return
         if session.udp:
             session.udp.close()
+        if session.tcp_writer is not None:
+            session.tcp_writer.close()
+        if session.serial_port is not None:
+            session.serial_port.close()
         if session.task:
             session.task.cancel()
             try:
@@ -240,6 +267,60 @@ class LinkManager:
         s.state = "CONNECTED"
         self.sessions[request.vehicle_id] = s
         return s.snapshot()
+
+    async def start_serial(self, request: SerialConnect):
+        if request.vehicle_id in self.sessions:
+            raise ValueError("Disconnect the existing aircraft link first")
+        # Only physical serial receive; no write() or MAVLink command sender.
+        port = serial.Serial(request.port, request.baud, timeout=0.2)
+        s = Session(request.vehicle_id, "LOCAL_SERIAL_RECEIVE", MAVLinkProjector(request.fc_system_id))
+        s.serial_port = port
+        s.state = "CONNECTED"
+        self.sessions[request.vehicle_id] = s
+        s.task = asyncio.create_task(self._read_serial(s))
+        return s.snapshot()
+
+    async def _read_serial(self, session: Session):
+        try:
+            while True:
+                chunk = await asyncio.to_thread(session.serial_port.read, 512)
+                if chunk:
+                    session.projector.push(bytes(chunk))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            session.state, session.error_code = "ERROR", "SERIAL_READ_FAILURE"
+        finally:
+            if session.serial_port is not None:
+                session.serial_port.close()
+
+    async def start_tcp(self, request: TCPConnect):
+        if request.vehicle_id in self.sessions:
+            raise ValueError("Disconnect the existing aircraft link first")
+        # Localhost only, so arbitrary Internet/edge/vehicle targets cannot be dialed.
+        reader, writer = await asyncio.open_connection("127.0.0.1", request.port)
+        s = Session(request.vehicle_id, "LOCAL_TCP_RECEIVE", MAVLinkProjector(request.fc_system_id))
+        s.tcp_writer = writer
+        s.state = "CONNECTED"
+        self.sessions[request.vehicle_id] = s
+        s.task = asyncio.create_task(self._read_tcp(s, reader))
+        return s.snapshot()
+
+    async def _read_tcp(self, session: Session, reader: asyncio.StreamReader):
+        try:
+            while True:
+                chunk = await reader.read(512)
+                if not chunk:
+                    session.state, session.error_code = "DISCONNECTED", "TCP_CLOSED"
+                    return
+                session.projector.push(chunk)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            session.state, session.error_code = "ERROR", "TCP_READ_FAILURE"
+        finally:
+            if session.tcp_writer is not None:
+                session.tcp_writer.close()
 
     async def start_cloud(self, request: CloudConnect):
         if request.vehicle_id in self.sessions:

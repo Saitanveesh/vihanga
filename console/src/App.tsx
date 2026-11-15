@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import GeoMap, { type MapPoint } from "./GeoMap";
 import FlightInstruments from "./FlightInstruments";
 import {
-  connectCloud, connectUDP, disconnectLink, getHealth, getMissions,
+  connectCloud, connectUDP, connectTCP, connectSerial, disconnectLink, getHealth, getMissions,
   getTelemetry, getObservedTrack, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
   type Health, type Mission, type SurveyPreview, type Telemetry,
   type Vehicle, type VehicleCreate, type Waypoint
@@ -60,11 +60,13 @@ export default function App() {
   const [missionTitle, setMissionTitle] = useState("");
   const [openedMission, setOpenedMission] = useState<Mission | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
-  const [linkType, setLinkType] = useState<"CLOUD" | "UDP">("CLOUD");
+  const [linkType, setLinkType] = useState<"CLOUD" | "UDP" | "TCP" | "SERIAL">("CLOUD");
   const [origin, setOrigin] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [port, setPort] = useState(14550);
+  const [serialPort, setSerialPort] = useState("COM3");
+  const [serialBaud, setSerialBaud] = useState(57600);
   const [sysid, setSysid] = useState(1);
   const [cameraInput, setCameraInput] = useState("");
   const [cameraUrl, setCameraUrl] = useState("");
@@ -285,15 +287,21 @@ export default function App() {
     if (!selected) return fail(new Error("Register and select an aircraft first"));
     setBusy(true);
     try {
-      const result = linkType === "CLOUD"
-        ? await connectCloud({ vehicle_id: selected, origin, username, password, fc_system_id: sysid })
-        : await connectUDP({ vehicle_id: selected, port, fc_system_id: sysid });
+      let result: Telemetry;
+      if (linkType === "CLOUD") result = await connectCloud({vehicle_id:selected,origin,username,password,fc_system_id:sysid});
+      else if (linkType === "SERIAL") result = await connectSerial({vehicle_id:selected,port:serialPort.trim(),baud:serialBaud,fc_system_id:sysid});
+      else if (linkType === "TCP") result = await connectTCP({vehicle_id:selected,port,fc_system_id:sysid});
+      else result = await connectUDP({vehicle_id:selected,port,fc_system_id:sysid});
       setReadings(old => ({ ...old, [selected]: result }));
       setConnectOpen(false);
       setPassword("");
       notify(linkType === "CLOUD"
-        ? "Cloud session requested. LIVE status requires real FC heartbeat and attitude packets."
-        : "Local UDP receiver bound to 127.0.0.1:" + port + ". Awaiting real SITL MAVLink packets.");
+        ? "Private cloud viewer requested. Awaiting verified flight-controller MAVLink."
+        : linkType === "SERIAL"
+          ? "Read-only serial receiver opened on " + serialPort + "."
+          : linkType === "TCP"
+            ? "Read-only TCP receiver connected to 127.0.0.1:" + port + "."
+            : "Local UDP listener bound to 127.0.0.1:" + port + ".");
     } catch (e) { fail(e); } finally { setBusy(false); setPassword(""); }
   }
   async function stopLink() {
@@ -602,26 +610,39 @@ export default function App() {
         <section className="connect-dialog" role="dialog" aria-modal="true" aria-labelledby="connect-title">
           <div className="dialog-head"><div><h2 id="connect-title">Connect aircraft</h2><p>{active?.label} · {selected}</p></div>
             <button type="button" onClick={() => { setConnectOpen(false); setPassword(""); }}>×</button></div>
-          <div className="transport-tabs">
-            <button className={linkType === "CLOUD" ? "active" : ""} onClick={() => setLinkType("CLOUD")}>Private cloud</button>
-            <button className={linkType === "UDP" ? "active" : ""} onClick={() => setLinkType("UDP")}>Local UDP / SITL</button>
+          <div className="transport-tabs four">
+            <button type="button" className={linkType === "CLOUD" ? "active" : ""} onClick={() => setLinkType("CLOUD")}>Cloud</button>
+            <button type="button" className={linkType === "SERIAL" ? "active" : ""} onClick={() => setLinkType("SERIAL")}>Serial / USB</button>
+            <button type="button" className={linkType === "UDP" ? "active" : ""} onClick={() => setLinkType("UDP")}>UDP</button>
+            <button type="button" className={linkType === "TCP" ? "active" : ""} onClick={() => setLinkType("TCP")}>TCP</button>
           </div>
           <form onSubmit={e => void startLink(e)} className="form-stack">
             {linkType === "CLOUD" ? <>
-              <label>Vihanga relay origin<input type="url" required placeholder="https://host.ts.net:8443"
+              <label>Private relay origin<input type="url" required placeholder="https://host.ts.net:8443"
                 value={origin} onChange={e => setOrigin(e.target.value)}/></label>
               <label>Operator username<input required value={username}
                 onChange={e => setUsername(e.target.value)}/></label>
               <label>Operator password<input required type="password" autoComplete="off"
                 value={password} onChange={e => setPassword(e.target.value)}/></label>
-            </> : <label>Local UDP listen port<input type="number" min="1024" max="65535"
-              value={port} onChange={e => setPort(+e.target.value)}/></label>}
+            </> : linkType === "SERIAL" ? <>
+              <label>Serial port<input required placeholder="COM3"
+                value={serialPort} onChange={e => setSerialPort(e.target.value)}/></label>
+              <label>Baud rate<select value={serialBaud}
+                onChange={e => setSerialBaud(Number(e.target.value))}>
+                  {[9600,19200,38400,57600,115200,230400,460800,921600].map(baud =>
+                    <option key={baud} value={baud}>{baud}</option>)}
+                </select></label>
+            </> : <label>{linkType === "TCP" ? "Local TCP port" : "Local UDP listen port"}
+              <input required type="number" min="1024" max="65535" value={port}
+                onChange={e => setPort(Number(e.target.value))}/></label>}
             <label>FC MAVLink system ID<input type="number" min="1" max="254"
               value={sysid} onChange={e => setSysid(+e.target.value)}/></label>
             <p className="dialog-info">{linkType === "CLOUD"
-              ? "Credentials are sent only to the configured private relay and are not saved to disk. The relay must already be reachable over Tailscale."
-              : "Listens on 127.0.0.1 only. A local ArduPilot SITL instance must send authentic MAVLink frames to this port."}
-              {" "}This connection is read-only.</p>
+              ? "Private viewer credentials are held for this session only. Connect your PC to the approved Tailscale network."
+              : linkType === "SERIAL"
+                ? "Vihanga reads the FC serial stream locally. Close other applications holding the same COM port."
+                : "Connection restricted to 127.0.0.1. Use a local SITL or authorized telemetry endpoint."}
+              {" "}All connection types are receive-only and do not send flight commands.</p>
             <button className="major" disabled={busy || !selected} type="submit">
               {busy ? "Connecting…" : "Start telemetry connection"}</button>
           </form>

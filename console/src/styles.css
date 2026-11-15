@@ -145,3 +145,8 @@ body{letter-spacing:.05px}
 @media(max-width:1400px){.instrument-dock{grid-template-columns:minmax(0,1fr) 220px minmax(0,1fr);gap:5px;padding:7px 9px}.primary-instruments{gap:12px}.attitude-face,.compass-face{height:80px;width:80px}.dock-readouts>div{padding:5px}.dock-readouts small{font-size:8px}.dock-readouts strong{font-size:14px}}
 @media(max-width:1050px){.fleetbar{width:200px}.operation-ribbon{max-width:calc(100% - 34px)}.operation-ribbon button{padding:8px 5px;font-size:9px}.ribbon-state{display:none}.instrument-dock{height:120px;grid-template-columns:1fr 165px 1fr;padding:6px 7px}.primary-instruments{gap:8px}.attitude-face,.compass-face{height:65px;width:65px}.dock-readouts{gap:3px}.dock-readouts>div{padding:4px}.dock-readouts small{font-size:7px}.dock-readouts strong{font-size:12px}}
 @media(max-width:720px){.toolbar-subtitle{display:none}.instrument-dock{height:100px;grid-template-columns:1fr 135px 1fr}.dock-readouts{grid-template-columns:1fr}.dock-readouts>div{min-height:auto;padding:3px 1px;gap:2px;border-right:0}.dock-readouts small{font-size:7px}.dock-readouts strong{font-size:10px}.primary-instruments{gap:6px}.attitude-face,.compass-face{height:55px;width:55px}.instrument-name{font-size:7px}.float-panel{top:72px;max-height:calc(100% - 80px)}.operation-ribbon{left:9px;top:8px}.operation-ribbon button{font-size:8px;padding:8px 4px}.operation-ribbon button span{display:none}.map-tools{right:9px;top:51px}}
+
+/* Four independently bound receive-only connection methods */
+.transport-tabs.four{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+.transport-tabs.four button{padding:10px 4px;font-size:10px;white-space:nowrap}
+@media(max-width:420px){.transport-tabs.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
