@@ -145,7 +145,7 @@ export default function GeoMap({
     observer?.observe(mount.current);
     window.addEventListener("resize", resize);
     map.on("load", resize);
-    const firstFrame = window.requestAnimationFrame(resize);
+    const firstFrame = window.requestAnimationFrame?.(resize);
     const secondFrame = window.setTimeout(resize, 160);
     map.on("mousedown", "boundary-handles", event => {
       if (!drawingRef.current || !event.features?.length) return;
@@ -180,7 +180,7 @@ export default function GeoMap({
     return () => {
       observer?.disconnect();
       window.removeEventListener("resize", resize);
-      window.cancelAnimationFrame(firstFrame);
+      if (firstFrame !== undefined) window.cancelAnimationFrame?.(firstFrame);
       window.clearTimeout(secondFrame);
       pointMarkers.current.forEach(marker => marker.remove());
       pointMarkers.current = [];
