@@ -535,16 +535,7 @@ export default function App() {
           {alert && <div className="toast error" role="alert">{alert}<button onClick={() => setAlert("")}>×</button></div>}
           {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
         </div>
-        <footer className="flight-strip">
-          <div><small>ROLL</small><strong>{value(sample?.roll_deg)}°</strong></div>
-          <div><small>PITCH</small><strong>{value(sample?.pitch_deg)}°</strong></div>
-          <div><small>YAW</small><strong>{value(sample?.yaw_deg)}°</strong></div>
-          <div><small>REL ALT</small><strong>{value(sample?.relative_alt_m)} m</strong></div>
-          <div><small>GROUND SPEED</small><strong>{value(sample?.groundspeed_mps)} m/s</strong></div>
-          <div><small>BATTERY</small><strong>{value(sample?.voltage_v, 2)} V</strong></div>
-          <div><small>GPS FIX</small><strong>{sample?.gps_fix_type ?? "—"}</strong></div>
-          <div><small>HEARTBEAT</small><strong>{sample?.heartbeat_fresh ? "FRESH" : "NONE"}</strong></div>
-        </footer>
+        <FlightInstruments telemetry={sample}/>
       </div>
       {connectOpen && <div className="modal-backdrop" onClick={e => {
         if (e.currentTarget === e.target) { setConnectOpen(false); setPassword(""); }
