@@ -6,6 +6,7 @@ command route is implemented in this service.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import asyncio
 from datetime import datetime, timezone
 from hashlib import sha256
 from math import asin, cos, radians, sin, sqrt
@@ -17,7 +18,7 @@ import re
 import sqlite3
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from vihanga.survey import router as survey_router
 from vihanga.telemetry import CloudConnect, UDPConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -133,6 +134,32 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     async def telemetry(vehicle_id: str):
         require_vehicle(vehicle_id)
         return links.snapshot(vehicle_id)
+
+    @app.get("/api/v1/flight-tracks/{vehicle_id}")
+    async def observed_track(vehicle_id: str):
+        require_vehicle(vehicle_id)
+        session = links.sessions.get(vehicle_id)
+        if session is None:
+            return {"vehicle_id": vehicle_id, "status": "NO_LIVE_SESSION",
+                    "points": [], "count": 0,
+                    "warning": "No physical GNSS data has been collected"}
+        return {"vehicle_id": vehicle_id, **session.projector.track_snapshot()}
+
+    @app.websocket("/ws/v1/telemetry/{vehicle_id}")
+    async def live_telemetry_socket(socket: WebSocket, vehicle_id: str):
+        # Loopback development only. No remote auth/command authority is implied.
+        with db() as con:
+            known = con.execute("SELECT 1 FROM vehicles WHERE vehicle_id=?", (vehicle_id,)).fetchone()
+        if not known:
+            await socket.close(code=4404)
+            return
+        await socket.accept()
+        try:
+            while True:
+                await socket.send_json(links.snapshot(vehicle_id))
+                await asyncio.sleep(0.25)
+        except (WebSocketDisconnect, RuntimeError, OSError):
+            pass
 
     @app.on_event("shutdown")
     async def stop_links():
