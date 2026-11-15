@@ -448,16 +448,15 @@ export default function App() {
             <span className="ribbon-divider"/>
             <span className="ribbon-hint" title="Routes are drafts; aircraft actuation is not available"><UiIcon name="lock" size={13}/> Planning only</span>
           </div>}
-          <div className="panel-launcher">
-            <button type="button" onClick={() => setPanelOpen(open => !open)}
-              aria-expanded={panelOpen} aria-controls="operator-panel"
-              aria-label={panelOpen ? "Hide operator panel" : "Show operator panel"}>
-              <UiIcon name={panelOpen ? "plan" : "map"} size={16}/>
-              {panelOpen ? "Hide panel" : "Show panel"}
+          {!panelOpen && <div className="panel-launcher">
+            <button type="button" onClick={() => setPanelOpen(true)}
+              aria-expanded={false} aria-controls="operator-panel"
+              aria-label="Show operator panel">
+              <UiIcon name="map" size={16}/> Show panel
             </button>
             {section === "PLAN" && waypoints.length > 0 &&
               <span className="route-count">{waypoints.length} waypoint{waypoints.length === 1 ? "" : "s"}</span>}
-          </div>
+          </div>}
           {panelOpen && section === "FLIGHT" && <div id="operator-panel" className="float-panel flight-summary">
             <div className="panel-title"><h2>Flight status</h2><span>{active?.label || "No aircraft selected"}</span><button type="button" className="panel-close" onClick={() => setPanelOpen(false)} aria-label="Close panel" title="Close panel">×</button></div>
             <div className="status-rows">
@@ -470,7 +469,7 @@ export default function App() {
               <div><span>Observed GNSS points</span><strong>{observedTrack.length}</strong></div>
               <div><span>Local viewer</span><strong>{liveTransportConnected ? "STREAMING" : "HTTP FALLBACK"}</strong></div>
             </div>
-            <p className="panel-footnote">Only validated, fresh MAVLink telemetry is shown. Aircraft control is unavailable in this software release.</p>
+            <p className="flight-status-note">Telemetry monitoring <span>·</span> Read-only connection</p>
           </div>}
           {panelOpen && section === "PLAN" && <section id="operator-panel" className="float-panel plan-panel">
             <div className="panel-title">
