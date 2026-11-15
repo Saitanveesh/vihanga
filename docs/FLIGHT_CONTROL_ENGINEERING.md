@@ -32,7 +32,7 @@ command succeeded. A rendered button is not evidence of an available transport.
    Do **not** set this on the Oracle VM or Raspberry Pi flight deployment.
 4. Start the standalone GCS using the repository startup script. Connect to
    the Pixhawk using Connections → Primary → Serial/USB and verify the actual
-   FC HEARTBEAT and ATTITUDE.
+   FC HEARTBEAT and ATTITUDE. Bench read requests remain locked unless a\n   fresh FC HEARTBEAT explicitly reports **DISARMED**.
 5. Select CONTROL → Diagnostics. Request FC version, RC, GPS or system status.
    The API returns `SERIAL_WRITE_COMPLETED` after the serial owner writes an
    allowlisted MAVLink read request. Observe the subsequent actual MAVLink
