@@ -114,7 +114,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     async def connect_broker(request: BrokerConnect):
         require_vehicle(request.vehicle_id)
         try:
-            return await links.start_broker(request)
+            await links.start_broker(request)
+            return links.snapshot(request.vehicle_id)
         except ValueError as ex:
             raise HTTPException(status_code=422, detail=str(ex)) from ex
 
@@ -122,7 +123,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     async def connect_cloud(request: CloudConnect):
         require_vehicle(request.vehicle_id)
         try:
-            return await links.start_cloud(request)
+            await links.start_cloud(request)
+            return links.snapshot(request.vehicle_id)
         except ValueError as ex:
             raise HTTPException(status_code=422, detail=str(ex)) from ex
 
@@ -130,7 +132,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     async def connect_udp(request: UDPConnect):
         require_vehicle(request.vehicle_id)
         try:
-            return await links.start_udp(request)
+            await links.start_udp(request)
+            return links.snapshot(request.vehicle_id)
         except ValueError as ex:
             raise HTTPException(status_code=422, detail=str(ex)) from ex
         except OSError as ex:
@@ -140,7 +143,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     async def connect_serial(request: SerialConnect):
         require_vehicle(request.vehicle_id)
         try:
-            return await links.start_serial(request)
+            await links.start_serial(request)
+            return links.snapshot(request.vehicle_id)
         except ValueError as ex:
             raise HTTPException(status_code=422, detail=str(ex)) from ex
         except Exception as ex:
@@ -150,7 +154,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     async def connect_tcp(request: TCPConnect):
         require_vehicle(request.vehicle_id)
         try:
-            return await links.start_tcp(request)
+            await links.start_tcp(request)
+            return links.snapshot(request.vehicle_id)
         except ValueError as ex:
             raise HTTPException(status_code=422, detail=str(ex)) from ex
         except OSError as ex:
@@ -162,7 +167,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             return await links.start_backup(request)
         except ValueError as ex:
             raise HTTPException(status_code=422, detail=str(ex)) from ex
-        except (OSError, Exception) as ex:
+        except Exception as ex:
             # Never echo credentials, serial device details or endpoint tokens.
             raise HTTPException(status_code=409, detail="Backup receiver could not be opened") from ex
 
