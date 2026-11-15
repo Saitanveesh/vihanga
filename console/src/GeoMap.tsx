@@ -12,7 +12,9 @@ type Props = {
   drawing: boolean;
   basemap: "satellite" | "streets";
   centerSignal: number;
+  fitSignal: number;
   onMapClick: (point: MapPoint) => void;
+  onVertexMove: (index: number, point: MapPoint) => void;
 };
 
 const street = {
@@ -69,14 +71,19 @@ function collection(polygon: MapPoint[], route: RoutePoint[], position: MapPoint
 }
 
 export default function GeoMap({
-  polygon, route, position, drawing, basemap, centerSignal, onMapClick
+  polygon, route, position, drawing, basemap, centerSignal, fitSignal, onMapClick, onVertexMove
 }: Props) {
   const mount = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const callback = useRef(onMapClick);
+  const vertexCallback = useRef(onVertexMove);
+  const geometryRef = useRef({polygon,route});
+  geometryRef.current = {polygon,route};
   const data = useRef<any>(collection(polygon, route, position));
   const drawingRef = useRef(drawing);
+  const movingVertex = useRef<number | null>(null);
   callback.current = onMapClick;
+  vertexCallback.current = onVertexMove;
   data.current = collection(polygon, route, position);
   drawingRef.current = drawing;
 
@@ -112,7 +119,31 @@ export default function GeoMap({
           "circle-stroke-width": 3 } });
     };
     map.on("style.load", install);
+    map.on("mousedown", "vertices", event => {
+      if (!drawingRef.current || !event.features?.length) return;
+      const record = event.features[0].properties;
+      if (record?.kind !== "vertex" || !Number.isInteger(record.index)) return;
+      movingVertex.current = Number(record.index) - 1;
+      map.dragPan.disable();
+      event.preventDefault();
+    });
+    map.on("mousemove", event => {
+      if (movingVertex.current === null) return;
+      vertexCallback.current(movingVertex.current, {
+        latitude: +event.lngLat.lat.toFixed(8),
+        longitude: +event.lngLat.lng.toFixed(8)
+      });
+    });
+    const release = () => {
+      if (movingVertex.current !== null) {
+        movingVertex.current = null;
+        map.dragPan.enable();
+      }
+    };
+    map.on("mouseup", release);
+    map.on("mouseout", release);
     map.on("click", event => {
+      if (event.originalEvent.defaultPrevented || movingVertex.current !== null) return;
       if (drawingRef.current) {
         callback.current({ latitude: +event.lngLat.lat.toFixed(8),
           longitude: +event.lngLat.lng.toFixed(8) });
@@ -141,6 +172,19 @@ export default function GeoMap({
     // Camera is recentered only by an explicit operator action.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerSignal]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const points = [...geometryRef.current.polygon, ...geometryRef.current.route];
+    if (!map || fitSignal <= 0 || points.length === 0) return;
+    const bounds = new maplibregl.LngLatBounds();
+    points.forEach(p => bounds.extend([p.longitude,p.latitude]));
+    if (points.length === 1) {
+      map.flyTo({center:[points[0].longitude,points[0].latitude],zoom:17});
+    } else {
+      map.fitBounds(bounds, {padding:{top:105,bottom:130,left:440,right:100},maxZoom:19,duration:650});
+    }
+  }, [fitSignal]);
 
   return <div ref={mount} className={drawing ? "map-canvas drawing" : "map-canvas"}
     role="application" aria-label="Geographic map: select draw mode and click to add polygon vertices or waypoints"/>;
