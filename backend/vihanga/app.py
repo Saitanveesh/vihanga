@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from vihanga.survey import router as survey_router
-from vihanga.telemetry import CloudConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
+from vihanga.telemetry import BrokerConnect, CloudConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -105,6 +105,14 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             exists = con.execute("SELECT 1 FROM vehicles WHERE vehicle_id=?", (vehicle_id,)).fetchone()
         if exists is None:
             raise HTTPException(status_code=404, detail="Aircraft not registered")
+
+    @app.post("/api/v1/links/broker")
+    async def connect_broker(request: BrokerConnect):
+        require_vehicle(request.vehicle_id)
+        try:
+            return await links.start_broker(request)
+        except ValueError as ex:
+            raise HTTPException(status_code=422, detail=str(ex)) from ex
 
     @app.post("/api/v1/links/cloud")
     async def connect_cloud(request: CloudConnect):
