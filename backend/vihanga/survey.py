@@ -5,7 +5,7 @@ transmitted to aircraft. No airspace, terrain, obstacle or geofence clearance.
 """
 from __future__ import annotations
 
-from math import asin, cos, floor, radians, sin, sqrt
+from math import asin, atan2, cos, pi, radians, sin, sqrt
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException
@@ -29,6 +29,7 @@ class SurveyRequest(StrictModel):
     spacing_m: float = Field(ge=5, le=200, allow_inf_nan=False)
     angle_deg: float = Field(ge=0, lt=180, allow_inf_nan=False)
     altitude_m: float = Field(ge=10, le=120, allow_inf_nan=False)
+    speed_mps: float = Field(default=5.0, ge=0.5, le=25, allow_inf_nan=False)
 
 
 def route_length(points: list[dict]) -> float:
@@ -142,6 +143,7 @@ def compute_survey(request: SurveyRequest) -> dict:
         "waypoints": waypoints, "lane_count": len(lines),
         "area_m2": round(area, 1), "route_distance_m": route_length(waypoints),
         "polygon": [p.model_dump() for p in request.polygon],
+        "estimated_duration_s": round(route_length(waypoints) / request.speed_mps, 1),
         "requires_route_review": True,
         "status": "PREVIEW_ONLY",
     }
@@ -151,5 +153,94 @@ def compute_survey(request: SurveyRequest) -> dict:
 def survey_preview(request: SurveyRequest):
     try:
         return compute_survey(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class CircularSurveyRequest(StrictModel):
+    """A conservative polygon-inscribed circular survey preview.
+
+    Designed for convex polygons. It excludes nonconvex boundaries rather than
+    generate routes through excluded ground; terrain and turning margins still
+    require pilot review.
+    """
+    polygon: list[Position] = Field(min_length=3, max_length=30)
+    spacing_m: float = Field(ge=5, le=200, allow_inf_nan=False)
+    altitude_m: float = Field(ge=10, le=120, allow_inf_nan=False)
+    speed_mps: float = Field(default=5.0, ge=0.5, le=25, allow_inf_nan=False)
+
+
+def compute_circular(request: CircularSurveyRequest) -> dict:
+    pts = [(p.latitude, p.longitude) for p in request.polygon]
+    if len(set(pts)) != len(pts):
+        raise ValueError("Repeated or identical polygon vertices")
+    lat0 = sum(p[0] for p in pts) / len(pts)
+    lon0 = sum(p[1] for p in pts) / len(pts)
+    if abs(lat0) >= 85 or max(p[1] for p in pts) - min(p[1] for p in pts) > 0.1:
+        raise ValueError("Unsupported survey extent")
+    sx = R * cos(radians(lat0)) * radians(1)
+    sy = R * radians(1)
+    poly = [((lon-lon0)*sx, (lat-lat0)*sy) for lat, lon in pts]
+    if max(x for x, _ in poly) - min(x for x, _ in poly) > 5000 or max(y for _, y in poly)-min(y for _, y in poly)>5000:
+        raise ValueError("Survey exceeds 5km local planning bounds")
+    n = len(poly)
+    cross = [_cross(poly[i],poly[(i+1)%n],poly[(i+2)%n]) for i in range(n)]
+    if not (all(x > 0.000001 for x in cross) or all(x < -0.000001 for x in cross)):
+        raise ValueError("Circular survey requires a strictly convex polygon")
+    # The arithmetic vertex centroid is inside a strictly convex polygon.
+    center_x = sum(x for x, _ in poly)/n
+    center_y = sum(y for _, y in poly)/n
+    distances = []
+    for i in range(n):
+        ax, ay = poly[i]
+        bx, by = poly[(i+1)%n]
+        length = sqrt((bx-ax)**2 + (by-ay)**2)
+        if length < 0.1:
+            raise ValueError("Polygon edge too small")
+        distances.append(abs((bx-ax)*(center_y-ay) - (by-ay)*(center_x-ax)) / length)
+    radius = min(distances) - 1.0   # keep a 1m visual buffer from polygon edge
+    if radius < request.spacing_m * 0.6:
+        raise ValueError("Survey polygon too small for selected circular spacing")
+    radii = []
+    current = request.spacing_m * 0.6
+    while current <= radius:
+        radii.append(current)
+        current += request.spacing_m
+    if len(radii) > 8:
+        raise ValueError("Too many circular rings; increase spacing")
+    # Sample ring geometry, alternating direction to reduce unnecessary transfer.
+    points = []
+    per_ring = 24
+    for index, r in enumerate(radii):
+        count = per_ring + 1
+        for j in range(count):
+            t = 2*pi*j/per_ring
+            if index % 2: t = -t
+            x = center_x + r*cos(t)
+            y = center_y + r*sin(t)
+            points.append({
+                "latitude": round(lat0+y/sy,8),
+                "longitude": round(lon0+x/sx,8),
+                "altitude_m": request.altitude_m
+            })
+    if len(points) > 200:
+        raise ValueError("Circular route exceeds 200 points")
+    length = route_length(points)
+    return {
+        "waypoints": points, "lane_count": len(radii),
+        "area_m2": round(pi * radius * radius, 1),
+        "route_distance_m": length,
+        "estimated_duration_s": round(length / request.speed_mps, 1),
+        "polygon": [p.model_dump() for p in request.polygon],
+        "requires_route_review": True,
+        "status": "PREVIEW_ONLY", "pattern": "CIRCULAR",
+        "coverage_note": "Inscribed concentric loops only; polygon corners are not covered"
+    }
+
+
+@router.post("/surveys/circular/preview")
+def circular_preview(request: CircularSurveyRequest):
+    try:
+        return compute_circular(request)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

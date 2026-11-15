@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import GeoMap, { type MapPoint } from "./GeoMap";
+import FlightInstruments from "./FlightInstruments";
 import {
   connectCloud, connectUDP, disconnectLink, getHealth, getMissions,
-  getTelemetry, getVehicles, previewSurvey, registerVehicle, saveMission,
+  getTelemetry, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
   type Health, type Mission, type SurveyPreview, type Telemetry,
   type Vehicle, type VehicleCreate, type Waypoint
 } from "./api";
@@ -15,9 +16,6 @@ const sections: { label: Section; icon: string }[] = [
   { label: "HISTORY", icon: "◷" }, { label: "VIDEO", icon: "▣" }
 ];
 
-function value(n: number | null | undefined, decimals = 1) {
-  return n == null ? "—" : n.toFixed(decimals);
-}
 function linkLabel(status?: string) {
   return status === "LIVE" ? "LIVE TELEMETRY" :
     status === "PARTIAL" ? "PARTIAL TELEMETRY" :
@@ -48,6 +46,12 @@ export default function App() {
   const [polygon, setPolygon] = useState<MapPoint[]>([]);
   const [manual, setManual] = useState<Waypoint[]>([]);
   const [survey, setSurvey] = useState<SurveyPreview | null>(null);
+  const [pattern, setPattern] = useState<"PARALLEL" | "CIRCULAR">("PARALLEL");
+  const [speed, setSpeed] = useState(5);
+  const [editedRoute, setEditedRoute] = useState<Waypoint[] | null>(null);
+  const [fitSignal, setFitSignal] = useState(0);
+  const [aircraftSearch, setAircraftSearch] = useState("");
+  const [aircraftFilter, setAircraftFilter] = useState<"ALL" | "LIVE" | "OFFLINE">("ALL");
   const [spacing, setSpacing] = useState(20);
   const [bearing, setBearing] = useState(0);
   const [altitude, setAltitude] = useState(35);
@@ -100,7 +104,13 @@ export default function App() {
   const sample = readings[selected];
   const location = sample?.latitude != null && sample.longitude != null
     ? { latitude: sample.latitude, longitude: sample.longitude } : null;
-  const waypoints = openedMission?.waypoints ?? survey?.waypoints ?? manual;
+  const waypoints = openedMission?.waypoints ?? editedRoute ?? survey?.waypoints ?? manual;
+  const fleetMatches = vehicles.filter(v => {
+    const q = aircraftSearch.trim().toLowerCase();
+    const match = !q || v.label.toLowerCase().includes(q) || v.vehicle_id.toLowerCase().includes(q);
+    const status = readings[v.vehicle_id]?.status;
+    return match && (aircraftFilter === "ALL" || (aircraftFilter === "LIVE" ? status === "LIVE" : status !== "LIVE"));
+  });
   const displayedMissionList = missions.filter(m => m.vehicle_id === selected);
   const liveCount = useMemo(
     () => Object.values(readings).filter(t => t.status === "LIVE").length, [readings]
@@ -120,8 +130,53 @@ export default function App() {
     if (section !== "PLAN") return;
     setOpenedMission(null);
     setSurvey(null);
+    setEditedRoute(null);
     if (drawMode === "POLYGON") setPolygon(old => [...old, point]);
     if (drawMode === "WAYPOINT") setManual(old => [...old, { ...point, altitude_m: altitude }]);
+  }
+
+
+  function reviseWaypoint(index: number, field: "latitude" | "longitude" | "altitude_m", raw: string) {
+    if (openedMission) return; // saved mission revisions are immutable
+    const n = Number(raw);
+    if (raw.trim() === "" || !Number.isFinite(n)) return;
+    if ((field === "latitude" && Math.abs(n) > 90) ||
+        (field === "longitude" && Math.abs(n) > 180) ||
+        (field === "altitude_m" && (n < 0 || n > 120))) return;
+    setEditedRoute(previous => (previous ?? (survey?.waypoints ?? manual)).map((p,i) =>
+      i === index ? { ...p, [field]: n } : p
+    ));
+  }
+
+  function exportDraftGeoJSON() {
+    if (waypoints.length < 2) return fail(new Error("No route available to export"));
+    const data = {
+      type: "FeatureCollection", features: [{
+        type: "Feature",
+        properties: {
+          vehicle_id: selected || null, status: "DRAFT_ONLY",
+          warning: "Not airspace, obstacle, terrain or aircraft validated",
+          altitude_m: "altitude stored per point"
+        },
+        geometry: { type: "LineString", coordinates: waypoints.map(p => [
+          p.longitude, p.latitude, p.altitude_m
+        ]) }
+      }]
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type:"application/geo+json"}));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "vihanga-" + (selected || "draft") + "-route.geojson";
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+    notify("Offline GeoJSON route exported. No vehicle upload performed.");
+  }
+
+  function moveVertex(index: number, point: MapPoint) {
+    if (section !== "PLAN" || openedMission) return;
+    setPolygon(p => p.map((v,i) => i === index ? point : v));
+    setSurvey(null);
+    setEditedRoute(null);
   }
 
   async function addAircraft(event: FormEvent) {
@@ -140,26 +195,30 @@ export default function App() {
   async function preview() {
     setBusy(true);
     try {
-      const result = await previewSurvey({
-        polygon, spacing_m: spacing, angle_deg: bearing, altitude_m: altitude
-      });
+      const result = pattern === "PARALLEL"
+        ? await previewSurvey({polygon, spacing_m: spacing, angle_deg: bearing,
+            altitude_m: altitude, speed_mps: speed})
+        : await previewCircularSurvey({polygon, spacing_m: spacing,
+            altitude_m: altitude, speed_mps: speed});
       setSurvey(result);
+      setEditedRoute(null);
       setManual([]);
       setOpenedMission(null);
       setDrawMode("NONE");
-      notify("Generated " + result.lane_count + " survey lanes. Review route and transitions before saving.");
+      notify("Generated " + result.lane_count + (pattern === "PARALLEL" ? " survey lanes." : " concentric loops.") + " Review route transitions before saving.");
+      setFitSignal(x => x + 1);
     } catch (e) { fail(e); } finally { setBusy(false); }
   }
   async function saveDraft(event: FormEvent) {
     event.preventDefault();
-    const route = survey?.waypoints ?? manual;
+    const route = editedRoute ?? survey?.waypoints ?? manual;
     if (!selected) return fail(new Error("Select a registered aircraft"));
     if (route.length < 2) return fail(new Error("Add two waypoints or preview a survey polygon"));
     setBusy(true);
     try {
       const draft = await saveMission({ vehicle_id: selected, title: missionTitle.trim(), waypoints: route });
       setOpenedMission(draft);
-      setSurvey(null); setPolygon([]); setManual([]); setMissionTitle("");
+      setSurvey(null); setEditedRoute(null); setPolygon([]); setManual([]); setMissionTitle("");
       setDrawMode("NONE");
       await refresh();
       notify("Saved draft " + draft.revision_sha256.slice(0, 12) + ". No flight-controller upload occurred.");
@@ -218,10 +277,19 @@ export default function App() {
       </aside>
       <aside className="fleetbar">
         <div className="fleetbar-head"><span>AIRCRAFT</span><strong>{vehicles.length}</strong></div>
-        <div className="fleet-search-note">Registered aircraft · live links shown separately</div>
+        <div className="fleet-search-note">Aircraft directory</div>
+        <div className="fleet-filters">
+          <input aria-label="Search aircraft" value={aircraftSearch} placeholder="Search ID or aircraft"
+            onChange={e => setAircraftSearch(e.target.value)}/>
+          <div className="filter-buttons">
+            {(["ALL","LIVE","OFFLINE"] as const).map(filter => <button type="button" key={filter}
+              className={aircraftFilter === filter ? "selected" : ""}
+              onClick={() => setAircraftFilter(filter)}>{filter === "ALL" ? "All" : filter === "LIVE" ? "Online" : "Offline"}</button>)}
+          </div>
+        </div>
         <div className="aircraft-items">
           {vehicles.length === 0 && <p className="sidebar-empty">No aircraft registered. Use FLEET to add one.</p>}
-          {vehicles.map(v => {
+          {fleetMatches.map(v => {
             const item = readings[v.vehicle_id];
             return <button key={v.vehicle_id} type="button"
               onClick={() => setSelected(v.vehicle_id)}
@@ -242,9 +310,10 @@ export default function App() {
       <div className="main-area">
         <header className="toolbar">
           <div className="toolbar-leading">
-            <span className="product-label">GROUND OPERATIONS</span>
+            <span className="product-label">VIHANGA / OPERATIONS</span>
             <span className="toolbar-separator">/</span>
-            <strong>{section}</strong>
+            <strong>{section === "PLAN" ? "MISSION PLANNING" : section}</strong>
+            <span className="toolbar-subtitle">{active?.label || "No aircraft selected"}</span>
           </div>
           <div className="toolbar-right">
             <span className={"link-chip " + (sample?.status === "LIVE" ? "ok" : "")}>
@@ -252,79 +321,147 @@ export default function App() {
             </span>
             <span className="vehicle-chip">{active?.vehicle_id || "NO AIRCRAFT"}</span>
             <button className="toolbar-button accent" onClick={() => setConnectOpen(true)}
-              disabled={!selected}>Connect</button>
+              disabled={!selected} title="Connect authenticated receive-only telemetry">Connect ↗</button>
           </div>
         </header>
         <div className="map-stage">
           <GeoMap polygon={section === "PLAN" ? polygon : []} route={section === "PLAN" || section === "HISTORY" ? waypoints : []}
             position={location} drawing={section === "PLAN" && drawMode !== "NONE"}
-            basemap={basemap} centerSignal={centerSignal} onMapClick={clicked}/>
+            basemap={basemap} centerSignal={centerSignal} fitSignal={fitSignal}
+            onMapClick={clicked} onVertexMove={moveVertex}/>
           <div className="map-tools">
             <button className={basemap === "satellite" ? "chosen" : ""} onClick={() => setBasemap("satellite")}>Satellite</button>
             <button className={basemap === "streets" ? "chosen" : ""} onClick={() => setBasemap("streets")}>Streets</button>
             <button disabled={!location} title={!location ? "No fresh GPS fix" : "Center selected aircraft"}
-              onClick={() => setCenterSignal(x => x + 1)}>Locate</button>
+              onClick={() => setCenterSignal(x => x + 1)}>Aircraft</button>
+            <button disabled={waypoints.length < 2 && polygon.length < 3}
+              title="Fit survey or route to map"
+              onClick={() => setFitSignal(x => x + 1)}>Fit route</button>
           </div>
+          {(section === "FLIGHT" || section === "PLAN") && <div className="operation-ribbon" role="toolbar" aria-label="Mission and aircraft operations">
+            <button onClick={() => { navigate("PLAN"); setDrawMode("POLYGON"); }} title="Draw survey boundary">▦ <span>Survey</span></button>
+            <button onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints">⌖ <span>Waypoints</span></button>
+            <button onClick={() => navigate("HISTORY")} title="View stored mission drafts">◷ <span>Routes</span></button>
+            <span className="ribbon-divider"/>
+            <button disabled title="ARM requires an authorized physical command link">ARM</button>
+            <button disabled title="TAKEOFF requires an authorized physical command link">TAKEOFF</button>
+            <button disabled title="RTL requires an authorized physical command link">RTL</button>
+            <button disabled title="LAND requires an authorized physical command link">LAND</button>
+            <span className="ribbon-state">COMMANDS LOCKED</span>
+          </div>}
           {section === "FLIGHT" && <div className="float-panel flight-summary">
-            <div className="panel-title"><h2>Aircraft status</h2><span>{active?.label || "Not selected"}</span></div>
+            <div className="panel-title"><h2>Flight status</h2><span>{active?.label || "No aircraft selected"}</span></div>
             <div className="status-rows">
-              <div><span>Link</span><strong>{linkLabel(sample?.status)}</strong></div>
-              <div><span>Flight mode</span><strong>{sample?.mode || "UNKNOWN"}</strong></div>
+              <div><span>Connection</span><strong>{linkLabel(sample?.status)}</strong></div>
+              <div><span>Flight mode</span><strong>{sample?.heartbeat_fresh ? sample.mode || "UNKNOWN" : "NO DATA"}</strong></div>
               <div><span>Arm state</span><strong>{sample?.armed == null ? "UNKNOWN" : sample.armed ? "ARMED" : "DISARMED"}</strong></div>
-              <div><span>GNSS fix</span><strong>{sample?.gps_fix_type == null ? "UNAVAILABLE" : "TYPE " + sample.gps_fix_type}</strong></div>
-              <div><span>Satellites</span><strong>{sample?.satellites ?? "—"}</strong></div>
-              <div><span>Data age</span><strong>{sample?.age_ms == null ? "—" : sample.age_ms + " ms"}</strong></div>
-              <div><span>FC heartbeat</span><strong>{sample?.heartbeat_fresh ? "FRESH" : "MISSING / STALE"}</strong></div>
+              <div><span>GNSS</span><strong>{sample?.gps_fix_type == null ? "NO FIX DATA" : "FIX " + sample.gps_fix_type + " / " + (sample.satellites ?? "—") + " SAT"}</strong></div>
+              <div><span>Telemetry age</span><strong>{sample?.age_ms == null ? "—" : sample.age_ms + " ms"}</strong></div>
+              <div><span>FC heartbeat</span><strong>{sample?.heartbeat_fresh ? "RECEIVING" : "MISSING / STALE"}</strong></div>
             </div>
-            <div className="panel-footnote">Telemetry is derived from received MAVLink frames. Flight commands are not available in this build.</div>
+            <p className="panel-footnote">Only validated, fresh MAVLink telemetry is shown. Aircraft control is unavailable in this software release.</p>
           </div>}
           {section === "PLAN" && <section className="float-panel plan-panel">
-            <div className="panel-title"><h2>Route planning</h2><span>Draft / not dispatched</span></div>
-            <div className="toggle-row">
-              <button className={drawMode === "POLYGON" ? "active" : ""}
-                onClick={() => { setDrawMode(drawMode === "POLYGON" ? "NONE" : "POLYGON"); setOpenedMission(null); }}>
-                Draw survey area</button>
-              <button className={drawMode === "WAYPOINT" ? "active" : ""}
-                onClick={() => { setDrawMode(drawMode === "WAYPOINT" ? "NONE" : "WAYPOINT"); setOpenedMission(null); }}>
-                Add waypoints</button>
+            <div className="panel-title">
+              <h2>Survey planner</h2>
+              <span>{openedMission ? "SAVED DRAFT" : survey ? "PREVIEW READY" : "DRAFT"}</span>
             </div>
-            {drawMode !== "NONE" && <div className="drawing-note">Click the map to add {drawMode === "POLYGON" ? "polygon vertices" : "waypoints"}.</div>}
-            <div className="plan-options">
-              <label>Line spacing (m)<input type="number" min="5" max="200" value={spacing}
-                onChange={e => { setSpacing(+e.target.value); setSurvey(null); }}/></label>
-              <label>Direction (°)<input type="number" min="0" max="179" value={bearing}
-                onChange={e => { setBearing(+e.target.value); setSurvey(null); }}/></label>
-              <label>Altitude (m)<input type="number" min="10" max="120" value={altitude}
-                onChange={e => { setAltitude(+e.target.value); setSurvey(null); }}/></label>
+            <div className="plan-tabs" aria-label="Coverage pattern">
+              <button type="button" className={pattern === "PARALLEL" ? "active" : ""}
+                onClick={() => { setPattern("PARALLEL"); setSurvey(null); setEditedRoute(null); }}>Parallel</button>
+              <button type="button" className={pattern === "CIRCULAR" ? "active" : ""}
+                onClick={() => { setPattern("CIRCULAR"); setSurvey(null); setEditedRoute(null); }}>Circular</button>
+            </div>
+            <div className="panel-section-label">MISSION GEOMETRY</div>
+            <div className="toggle-row compact-row">
+              <button type="button" className={drawMode === "POLYGON" ? "active" : ""}
+                onClick={() => { setDrawMode(drawMode === "POLYGON" ? "NONE" : "POLYGON"); setOpenedMission(null); }}>
+                Draw boundary</button>
+              <button type="button" className={drawMode === "WAYPOINT" ? "active" : ""}
+                onClick={() => { setDrawMode(drawMode === "WAYPOINT" ? "NONE" : "WAYPOINT"); setOpenedMission(null); }}>
+                Add waypoint</button>
+            </div>
+            {drawMode !== "NONE" && <div className="drawing-note">
+              Map editing active · Click to add {drawMode === "POLYGON" ? "survey vertices" : "route waypoints"}.
+              Vertices can be dragged on the map.
+            </div>}
+            <div className="survey-controls">
+              <label>Line / ring spacing
+                <div className="value-row"><input type="range" min="5" max="100" step="1" value={spacing}
+                  onChange={e => {setSpacing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  <input className="value-box" type="number" min="5" max="200" value={spacing}
+                    onChange={e => {setSpacing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>m</span></div>
+              </label>
+              {pattern === "PARALLEL" && <label>Grid angle
+                <div className="value-row"><input type="range" min="0" max="179" value={bearing}
+                  onChange={e => {setBearing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  <input className="value-box" type="number" min="0" max="179" value={bearing}
+                    onChange={e => {setBearing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>°</span></div>
+              </label>}
+              <label>Flight altitude
+                <div className="value-row"><input type="range" min="10" max="120" value={altitude}
+                  onChange={e => {setAltitude(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  <input className="value-box" type="number" min="10" max="120" value={altitude}
+                    onChange={e => {setAltitude(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>m</span></div>
+              </label>
+              <label>Planned groundspeed
+                <div className="value-row"><input type="range" min="0.5" max="20" step="0.5" value={speed}
+                  onChange={e => {setSpeed(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  <input className="value-box" type="number" min="0.5" max="25" step="0.5" value={speed}
+                    onChange={e => {setSpeed(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>m/s</span></div>
+              </label>
             </div>
             <div className="plan-buttons">
-              <button onClick={() => {
-                if (drawMode === "POLYGON") setPolygon(p => p.slice(0, -1));
-                if (drawMode === "WAYPOINT") setManual(p => p.slice(0, -1));
-                setSurvey(null);
-              }}>Undo point</button>
-              <button onClick={() => { setPolygon([]); setManual([]); setSurvey(null); setOpenedMission(null); }}>Clear</button>
+              <button type="button" onClick={() => {
+                if (drawMode === "POLYGON") setPolygon(p => p.slice(0,-1));
+                if (drawMode === "WAYPOINT") setManual(p => p.slice(0,-1));
+                setSurvey(null);setEditedRoute(null);setOpenedMission(null);
+              }}>Undo</button>
+              <button type="button" onClick={() => {
+                setPolygon([]);setManual([]);setSurvey(null);setEditedRoute(null);
+                setOpenedMission(null);setDrawMode("NONE");
+              }}>Clear area</button>
+              <button type="button" disabled={!polygon.length && !waypoints.length}
+                onClick={() => setFitSignal(v => v+1)}>Fit map</button>
             </div>
-            <button className="major" onClick={() => void preview()}
-              disabled={busy || polygon.length < 3}>Generate survey lanes</button>
+            <button type="button" className="major" disabled={busy || polygon.length < 3}
+              onClick={() => void preview()}>{busy ? "Working…" : "Generate coverage route"}</button>
             <div className="plan-stats">
-              <div><span>Survey vertices</span><strong>{polygon.length}</strong></div>
-              <div><span>Flight lines</span><strong>{survey?.lane_count ?? "—"}</strong></div>
-              <div><span>Waypoints</span><strong>{waypoints.length}</strong></div>
-              <div><span>Estimated route</span><strong>{survey ? (survey.route_distance_m / 1000).toFixed(2) + " km" : "—"}</strong></div>
+              <div><span>Boundary vertices</span><strong>{polygon.length}</strong></div>
+              <div><span>{pattern === "CIRCULAR" ? "Concentric rings" : "Flight lines"}</span><strong>{survey?.lane_count ?? "—"}</strong></div>
+              <div><span>Route waypoints</span><strong>{waypoints.length}</strong></div>
+              <div><span>Route distance</span><strong>{survey ? (survey.route_distance_m/1000).toFixed(2) + " km" : "—"}</strong></div>
+              <div><span>Travel time estimate</span><strong>{survey ? (survey.estimated_duration_s/60).toFixed(1) + " min" : "—"}</strong></div>
             </div>
-            {waypoints.length > 0 && <div className="waypoint-list">
-              {waypoints.slice(0, 80).map((p, i) => <div key={i}><b>{i + 1}</b>
-                {p.latitude.toFixed(5)}, {p.longitude.toFixed(5)}
-                <span>{p.altitude_m} m</span></div>)}
-              {waypoints.length > 80 && <small>Showing 80 of {waypoints.length} points</small>}
+            {survey?.coverage_note && <div className="drawing-note">{survey.coverage_note}</div>}
+            {waypoints.length > 0 && <div className="route-editor">
+              <div className="route-editor-head">
+                <strong>Waypoints ({waypoints.length})</strong>
+                <span>{openedMission ? "READ ONLY" : "EDITABLE"}</span>
+              </div>
+              <div className="route-scroll">
+                {waypoints.slice(0,100).map((p,i) => <div className="route-row" key={i}>
+                  <span className="waypoint-index">{i+1}</span>
+                  <label>LAT<input disabled={!!openedMission} type="number" step="any"
+                    defaultValue={p.latitude} onBlur={e => reviseWaypoint(i,"latitude",e.target.value)}/></label>
+                  <label>LON<input disabled={!!openedMission} type="number" step="any"
+                    defaultValue={p.longitude} onBlur={e => reviseWaypoint(i,"longitude",e.target.value)}/></label>
+                  <label>ALT<input disabled={!!openedMission} type="number" min="0" max="120"
+                    defaultValue={p.altitude_m} onBlur={e => reviseWaypoint(i,"altitude_m",e.target.value)}/></label>
+                </div>)}
+                {waypoints.length > 100 && <p className="panel-footnote">Showing first 100 of {waypoints.length} route points</p>}
+              </div>
             </div>}
+            <div className="export-actions">
+              <button type="button" onClick={exportDraftGeoJSON} disabled={waypoints.length < 2}>Export GeoJSON</button>
+            </div>
             <form className="save-form" onSubmit={e => void saveDraft(e)}>
-              <label>Mission name<input required minLength={3} maxLength={100} placeholder="Survey 01"
-                value={missionTitle} onChange={e => setMissionTitle(e.target.value)}/></label>
-              <button type="submit" className="major" disabled={busy || waypoints.length < 2 || !selected}>Save route draft</button>
+              <label>Mission name<input required minLength={3} maxLength={100}
+                placeholder="Boundary survey · Site 01" value={missionTitle}
+                onChange={e => setMissionTitle(e.target.value)}/></label>
+              <button type="submit" className="major" disabled={busy || waypoints.length < 2 || !selected || !!openedMission}>Save mission draft</button>
             </form>
-            <p className="panel-footnote">Planning geometry is real; terrain, airspace, obstacles and connecting turns are not cleared. No mission upload occurs.</p>
+            <p className="panel-footnote">Route geometry and estimates are calculated, not simulated. No airspace, terrain, turning-radius or obstacle clearance has been verified. No mission upload occurs.</p>
           </section>}
           {section === "FLEET" && <section className="float-panel utility-panel">
             <div className="panel-title"><h2>Aircraft registry</h2><span>{vehicles.length} registered</span></div>
@@ -395,16 +532,7 @@ export default function App() {
           {alert && <div className="toast error" role="alert">{alert}<button onClick={() => setAlert("")}>×</button></div>}
           {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
         </div>
-        <footer className="flight-strip">
-          <div><small>ROLL</small><strong>{value(sample?.roll_deg)}°</strong></div>
-          <div><small>PITCH</small><strong>{value(sample?.pitch_deg)}°</strong></div>
-          <div><small>YAW</small><strong>{value(sample?.yaw_deg)}°</strong></div>
-          <div><small>REL ALT</small><strong>{value(sample?.relative_alt_m)} m</strong></div>
-          <div><small>GROUND SPEED</small><strong>{value(sample?.groundspeed_mps)} m/s</strong></div>
-          <div><small>BATTERY</small><strong>{value(sample?.voltage_v, 2)} V</strong></div>
-          <div><small>GPS FIX</small><strong>{sample?.gps_fix_type ?? "—"}</strong></div>
-          <div><small>HEARTBEAT</small><strong>{sample?.heartbeat_fresh ? "FRESH" : "NONE"}</strong></div>
-        </footer>
+        <FlightInstruments telemetry={sample}/>
       </div>
       {connectOpen && <div className="modal-backdrop" onClick={e => {
         if (e.currentTarget === e.target) { setConnectOpen(false); setPassword(""); }
