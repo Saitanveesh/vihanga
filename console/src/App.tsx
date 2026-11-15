@@ -622,7 +622,7 @@ export default function App() {
             <button type="button" className={linkType === "UDP" ? "active" : ""} onClick={() => setLinkType("UDP")}>UDP</button>
             <button type="button" className={linkType === "TCP" ? "active" : ""} onClick={() => setLinkType("TCP")}>TCP</button>
           </div>
-          {sample?.transport && <div className="dialog-info" role="status">
+          {sample?.transport && <div className="dialog-info connection-session" role="status">
             <strong>Existing receiver session: {sample.transport}</strong>
             <div>State: {sample.status}{sample.error_code ? " · " + sample.error_code : ""}.</div>
             <div>{sample.status === "LIVE"
