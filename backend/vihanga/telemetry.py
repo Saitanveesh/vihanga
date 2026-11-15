@@ -300,8 +300,12 @@ class Session:
     tcp_writer: asyncio.StreamWriter | None = None
 
     def snapshot(self) -> dict:
-        sample = self.projector.snapshot()
         state = self.state
+        # A broken transport is not evidence of live data, even if its last
+        # packet was received 100 ms ago. Hide cached instruments instantly
+        # on failure/reconnect rather than waiting out each field TTL.
+        sample = (self.projector.snapshot() if state == "CONNECTED"
+                  else MAVLinkProjector(self.projector.system_id).snapshot())
         if state == "CONNECTED":
             state = ("LIVE" if sample["heartbeat_fresh"] and sample["attitude_fresh"]
                      else "PARTIAL" if sample["heartbeat_fresh"]
