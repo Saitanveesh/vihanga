@@ -239,7 +239,7 @@ class MAVLinkProjector:
             elif typ == "PARAM_VALUE":
                 raw_name = msg.param_id
                 name = raw_name.decode("ascii", "ignore") if isinstance(raw_name, bytes) else str(raw_name)
-                name = name.split("\\x00", 1)[0].strip()
+                name = name.split("\x00", 1)[0].strip()
                 value = float(msg.param_value)
                 if (name and len(name) <= 16 and name.isascii() and
                         all(c.isalnum() or c == "_" for c in name) and isfinite(value)):
