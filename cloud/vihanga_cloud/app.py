@@ -123,6 +123,10 @@ class Broker:
             raise ValueError("Configure between 1 and 100 aircraft")
         if len(set(i.vehicle_id for i in identities)) != len(identities):
             raise ValueError("Duplicate aircraft identifier")
+        credentials = [token for aircraft in identities for token in (
+            aircraft.device_token_hash, aircraft.viewer_token_hash)]
+        if len(set(credentials)) != len(credentials):
+            raise ValueError("Credential digests must be unique across all aircraft and roles")
         self.slots = {i.vehicle_id: Slot(i) for i in identities}
 
     def authorize(self, vehicle_id: str, token: str, viewer: bool = False) -> Slot | None:
