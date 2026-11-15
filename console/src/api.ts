@@ -81,6 +81,7 @@ export interface Telemetry {
   age_ms: number | null;
   frames_total: number;
   rejected_frames: number;
+  track_points: number;
   message_counts: Record<string, number>;
 }
 export interface CloudSettings {
@@ -130,3 +131,14 @@ export const previewCircularSurvey = (input: {
 export const connectCloud = (input: CloudSettings) => jsonPost<Telemetry>("links/cloud", input);
 export const connectUDP = (input: UDPSettings) => jsonPost<Telemetry>("links/udp", input);
 export const disconnectLink = (id: string) => request<Telemetry>("links/" + encodeURIComponent(id), {method: "DELETE"});
+
+
+export interface ObservedTrack {
+  vehicle_id: string;
+  status: string;
+  points: GeoPoint[];
+  count: number;
+  warning: string;
+}
+export const getObservedTrack = (id: string) =>
+  request<ObservedTrack>("flight-tracks/" + encodeURIComponent(id));

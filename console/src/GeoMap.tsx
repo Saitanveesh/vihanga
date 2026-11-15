@@ -8,6 +8,7 @@ export type RoutePoint = MapPoint & { altitude_m: number };
 type Props = {
   polygon: MapPoint[];
   route: RoutePoint[];
+  track: MapPoint[];
   position: MapPoint | null;
   drawing: boolean;
   basemap: "satellite" | "streets";
@@ -40,7 +41,7 @@ const imagery = {
   layers: [{ id: "base", type: "raster", source: "tiles" }]
 };
 
-function collection(polygon: MapPoint[], route: RoutePoint[], position: MapPoint | null) {
+function collection(polygon: MapPoint[], route: RoutePoint[], position: MapPoint | null, track: MapPoint[]) {
   const features: any[] = [];
   const xy = (point: MapPoint) => [point.longitude, point.latitude];
   if (polygon.length >= 3) {
@@ -50,6 +51,10 @@ function collection(polygon: MapPoint[], route: RoutePoint[], position: MapPoint
   if (polygon.length >= 2) {
     features.push({ type: "Feature", properties: { kind: "outline" },
       geometry: { type: "LineString", coordinates: polygon.map(xy) } });
+  }
+  if (track.length >= 2) {
+    features.push({type: "Feature", properties:{kind:"observed_track"},
+      geometry:{type:"LineString",coordinates:track.map(xy)}});
   }
   if (route.length >= 2) {
     features.push({ type: "Feature", properties: { kind: "route" },
@@ -71,7 +76,7 @@ function collection(polygon: MapPoint[], route: RoutePoint[], position: MapPoint
 }
 
 export default function GeoMap({
-  polygon, route, position, drawing, basemap, centerSignal, fitSignal, onMapClick, onVertexMove
+  polygon, route, track, position, drawing, basemap, centerSignal, fitSignal, onMapClick, onVertexMove
 }: Props) {
   const mount = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -79,12 +84,12 @@ export default function GeoMap({
   const vertexCallback = useRef(onVertexMove);
   const geometryRef = useRef({polygon,route});
   geometryRef.current = {polygon,route};
-  const data = useRef<any>(collection(polygon, route, position));
+  const data = useRef<any>(collection(polygon, route, position, track));
   const drawingRef = useRef(drawing);
   const movingVertex = useRef<number | null>(null);
   callback.current = onMapClick;
   vertexCallback.current = onVertexMove;
-  data.current = collection(polygon, route, position);
+  data.current = collection(polygon, route, position, track);
   drawingRef.current = drawing;
 
   useEffect(() => {
@@ -106,6 +111,10 @@ export default function GeoMap({
       map.addLayer({ id: "survey-boundary", type: "line", source: "vihanga-geometry",
         filter: ["in", ["get", "kind"], ["literal", ["survey", "outline"]]],
         paint: { "line-color": "#64e6aa", "line-width": 2 } });
+      map.addLayer({ id: "observed-track", type: "line", source: "vihanga-geometry",
+        filter: ["==", ["get", "kind"], "observed_track"],
+        paint: { "line-color": "#30b9ff", "line-width": 3,
+                 "line-opacity": .84 } });
       map.addLayer({ id: "route-line", type: "line", source: "vihanga-geometry",
         filter: ["==", ["get", "kind"], "route"],
         paint: { "line-color": "#ffcf64", "line-width": 3 } });
@@ -162,7 +171,7 @@ export default function GeoMap({
   useEffect(() => {
     const source = mapRef.current?.getSource("vihanga-geometry") as GeoJSONSource | undefined;
     if (source) source.setData(data.current);
-  }, [polygon, route, position]);
+  }, [polygon, route, position, track]);
 
   useEffect(() => {
     const map = mapRef.current;

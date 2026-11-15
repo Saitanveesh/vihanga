@@ -5,7 +5,7 @@ No aircraft command encoder, serial writer, flight actuation, or synthetic data.
 from __future__ import annotations
 
 import asyncio
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from math import degrees, isfinite
 import time
@@ -57,6 +57,9 @@ class MAVLinkProjector:
     fields: dict[str, tuple[object, float]] = field(default_factory=dict)
     invalid_frames: int = 0
     last_frame_at: float = -1.0
+    track: deque = field(default_factory=lambda: deque(maxlen=1500))
+    last_track_at: float = -1.0
+    track_distance_m: float = 0.0
 
     def _set(self, key, value, now):
         self.fields[key] = (value, now)
@@ -106,6 +109,14 @@ class MAVLinkProjector:
                         (lat != 0 or lon != 0)):
                     self._set("latitude_raw", lat, now)
                     self._set("longitude_raw", lon, now)
+                    recent_fix = self.fields.get("gps_fix_type")
+                    if recent_fix and recent_fix[0] >= 3 and now - recent_fix[1] <= 5.0:
+                        # Real GNSS points only. A position without a valid GPS fix
+                        # never becomes part of the flight track.
+                        latest = self.track[-1] if self.track else None
+                        if latest is None or abs(lat-latest[0]) > 1e-7 or abs(lon-latest[1]) > 1e-7:
+                            self.track.append((round(lat, 7), round(lon, 7), now))
+                            self.last_track_at = now
                 alt = msg.relative_alt / 1000
                 if -10000 <= alt <= 100000:
                     self._set("relative_alt_m", round(alt, 2), now)
@@ -120,6 +131,15 @@ class MAVLinkProjector:
                 if isfinite(msg.climb) and abs(msg.climb) <= 150:
                     self._set("climb_mps", round(msg.climb, 2), now)
         return accepted
+
+    def track_snapshot(self) -> dict:
+        return {
+            "status": "RECEIVED_GNSS_ONLY",
+            "points": [{"latitude": lat, "longitude": lon}
+                       for lat, lon, _ in self.track],
+            "count": len(self.track),
+            "warning": "Track is a volatile observed position record, not a flight plan"
+        }
 
     def snapshot(self) -> dict:
         now = time.monotonic()
@@ -142,7 +162,8 @@ class MAVLinkProjector:
             "voltage_v": fresh("voltage_v"), "battery_pct": fresh("battery_pct"),
             "frames_total": sum(self.count.values()),
             "message_counts": dict(self.count), "rejected_frames": self.invalid_frames,
-            "age_ms": round((now - self.last_frame_at) * 1000) if self.last_frame_at >= 0 else None
+            "age_ms": round((now - self.last_frame_at) * 1000) if self.last_frame_at >= 0 else None,
+            "track_points": len(self.track)
         }
 
 
@@ -230,29 +251,45 @@ class LinkManager:
         return s.snapshot()
 
     async def _run_cloud(self, session, origin, username, password):
-        try:
-            async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-                response = await client.post(origin + "/api/v1/auth/login", json={
-                    "username": username, "password": password})
-            if response.status_code != 200:
-                session.state, session.error_code = "ERROR", "CLOUD_AUTH_REJECTED"
-                return
-            token = response.json().get("access_token")
-            if not isinstance(token, str) or len(token) < 20:
-                session.state, session.error_code = "ERROR", "INVALID_LOGIN_RESPONSE"
-                return
-            uri = origin.replace("https://", "wss://", 1) + (
-                "/ws/mavlink/view/" + session.vehicle_id)
-            async with connect(uri, additional_headers={"Authorization": "Bearer " + token},
-                               open_timeout=10, close_timeout=3, ping_interval=15,
-                               max_size=1024, max_queue=16) as ws:
-                session.state = "CONNECTED"
-                async for raw in ws:
-                    if isinstance(raw, bytes):
-                        session.projector.push(raw)
-            session.state, session.error_code = "DISCONNECTED", "CLOUD_STREAM_CLOSED"
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            # Do not expose private origin, tokens, passwords or HTTP exceptions.
-            session.state, session.error_code = "ERROR", "PRIVATE_CLOUD_UNAVAILABLE"
+        """Reauthenticate after JWT expiry without replaying stale telemetry."""
+        failures = 0
+        while True:
+            try:
+                session.state = "CONNECTING" if failures == 0 else "RECONNECTING"
+                session.error_code = None
+                async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+                    response = await client.post(origin + "/api/v1/auth/login", json={
+                        "username": username, "password": password})
+                if response.status_code in (401, 403):
+                    session.state, session.error_code = "ERROR", "CLOUD_AUTH_REJECTED"
+                    return
+                if response.status_code != 200:
+                    raise RuntimeError("login unavailable")
+                token = response.json().get("access_token")
+                if not isinstance(token, str) or len(token) < 20:
+                    session.state, session.error_code = "ERROR", "INVALID_LOGIN_RESPONSE"
+                    return
+                uri = origin.replace("https://", "wss://", 1) + (
+                    "/ws/mavlink/view/" + session.vehicle_id)
+                # New epoch: old data must never be presented as live on reconnect.
+                session.projector = MAVLinkProjector(session.projector.system_id)
+                async with connect(uri, additional_headers={"Authorization": "Bearer " + token},
+                                   open_timeout=10, close_timeout=3, ping_interval=15,
+                                   max_size=1024, max_queue=16) as ws:
+                    failures = 0
+                    session.state = "CONNECTED"
+                    async for raw in ws:
+                        if isinstance(raw, bytes):
+                            session.projector.push(raw)
+                session.projector = MAVLinkProjector(session.projector.system_id)
+                session.state, session.error_code = "RECONNECTING", "CLOUD_VIEWER_CLOSED"
+                failures = max(failures, 1)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Do not expose relay address, token or user credentials.
+                session.projector = MAVLinkProjector(session.projector.system_id)
+                session.state, session.error_code = "RECONNECTING", "PRIVATE_CLOUD_UNAVAILABLE"
+                failures += 1
+            # Exponential, bounded reconnect. Never automatically dispatch commands.
+            await asyncio.sleep(min(2 ** min(failures, 4), 20))
