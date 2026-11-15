@@ -53,6 +53,9 @@ class LanFanout:
         """Serial failure starts a new epoch; disconnect every stale viewer."""
         self.source_epoch += 1
         for websocket, queue in tuple(self.queues.items()):
+            # Revoke the subscription synchronously before waiting on network
+            # shutdown; no stale UART epoch can publish into this queue.
+            self.queues.pop(websocket, None)
             self.dropped_frames += queue.qsize()
             while not queue.empty():
                 queue.get_nowait()
