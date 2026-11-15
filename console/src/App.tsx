@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import GeoMap, { type MapPoint } from "./GeoMap";
+import FlightInstruments from "./FlightInstruments";
 import {
   connectCloud, connectUDP, disconnectLink, getHealth, getMissions,
-  getTelemetry, getVehicles, previewSurvey, registerVehicle, saveMission,
+  getTelemetry, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
   type Health, type Mission, type SurveyPreview, type Telemetry,
   type Vehicle, type VehicleCreate, type Waypoint
 } from "./api";
@@ -48,6 +49,12 @@ export default function App() {
   const [polygon, setPolygon] = useState<MapPoint[]>([]);
   const [manual, setManual] = useState<Waypoint[]>([]);
   const [survey, setSurvey] = useState<SurveyPreview | null>(null);
+  const [pattern, setPattern] = useState<"PARALLEL" | "CIRCULAR">("PARALLEL");
+  const [speed, setSpeed] = useState(5);
+  const [editedRoute, setEditedRoute] = useState<Waypoint[] | null>(null);
+  const [fitSignal, setFitSignal] = useState(0);
+  const [aircraftSearch, setAircraftSearch] = useState("");
+  const [aircraftFilter, setAircraftFilter] = useState<"ALL" | "LIVE" | "OFFLINE">("ALL");
   const [spacing, setSpacing] = useState(20);
   const [bearing, setBearing] = useState(0);
   const [altitude, setAltitude] = useState(35);
@@ -100,7 +107,13 @@ export default function App() {
   const sample = readings[selected];
   const location = sample?.latitude != null && sample.longitude != null
     ? { latitude: sample.latitude, longitude: sample.longitude } : null;
-  const waypoints = openedMission?.waypoints ?? survey?.waypoints ?? manual;
+  const waypoints = openedMission?.waypoints ?? editedRoute ?? survey?.waypoints ?? manual;
+  const fleetMatches = vehicles.filter(v => {
+    const q = aircraftSearch.trim().toLowerCase();
+    const match = !q || v.label.toLowerCase().includes(q) || v.vehicle_id.toLowerCase().includes(q);
+    const status = readings[v.vehicle_id]?.status;
+    return match && (aircraftFilter === "ALL" || (aircraftFilter === "LIVE" ? status === "LIVE" : status !== "LIVE"));
+  });
   const displayedMissionList = missions.filter(m => m.vehicle_id === selected);
   const liveCount = useMemo(
     () => Object.values(readings).filter(t => t.status === "LIVE").length, [readings]
@@ -120,8 +133,53 @@ export default function App() {
     if (section !== "PLAN") return;
     setOpenedMission(null);
     setSurvey(null);
+    setEditedRoute(null);
     if (drawMode === "POLYGON") setPolygon(old => [...old, point]);
     if (drawMode === "WAYPOINT") setManual(old => [...old, { ...point, altitude_m: altitude }]);
+  }
+
+
+  function reviseWaypoint(index: number, field: "latitude" | "longitude" | "altitude_m", raw: string) {
+    if (openedMission) return; // saved mission revisions are immutable
+    const n = Number(raw);
+    if (raw.trim() === "" || !Number.isFinite(n)) return;
+    if ((field === "latitude" && Math.abs(n) > 90) ||
+        (field === "longitude" && Math.abs(n) > 180) ||
+        (field === "altitude_m" && (n < 0 || n > 120))) return;
+    setEditedRoute(previous => (previous ?? (survey?.waypoints ?? manual)).map((p,i) =>
+      i === index ? { ...p, [field]: n } : p
+    ));
+  }
+
+  function exportDraftGeoJSON() {
+    if (waypoints.length < 2) return fail(new Error("No route available to export"));
+    const data = {
+      type: "FeatureCollection", features: [{
+        type: "Feature",
+        properties: {
+          vehicle_id: selected || null, status: "DRAFT_ONLY",
+          warning: "Not airspace, obstacle, terrain or aircraft validated",
+          altitude_m: "altitude stored per point"
+        },
+        geometry: { type: "LineString", coordinates: waypoints.map(p => [
+          p.longitude, p.latitude, p.altitude_m
+        ]) }
+      }]
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type:"application/geo+json"}));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "vihanga-" + (selected || "draft") + "-route.geojson";
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+    notify("Offline GeoJSON route exported. No vehicle upload performed.");
+  }
+
+  function moveVertex(index: number, point: MapPoint) {
+    if (section !== "PLAN" || openedMission) return;
+    setPolygon(p => p.map((v,i) => i === index ? point : v));
+    setSurvey(null);
+    setEditedRoute(null);
   }
 
   async function addAircraft(event: FormEvent) {
@@ -140,26 +198,30 @@ export default function App() {
   async function preview() {
     setBusy(true);
     try {
-      const result = await previewSurvey({
-        polygon, spacing_m: spacing, angle_deg: bearing, altitude_m: altitude
-      });
+      const result = pattern === "PARALLEL"
+        ? await previewSurvey({polygon, spacing_m: spacing, angle_deg: bearing,
+            altitude_m: altitude, speed_mps: speed})
+        : await previewCircularSurvey({polygon, spacing_m: spacing,
+            altitude_m: altitude, speed_mps: speed});
       setSurvey(result);
+      setEditedRoute(null);
       setManual([]);
       setOpenedMission(null);
       setDrawMode("NONE");
-      notify("Generated " + result.lane_count + " survey lanes. Review route and transitions before saving.");
+      notify("Generated " + result.lane_count + (pattern === "PARALLEL" ? " survey lanes." : " concentric loops.") + " Review route transitions before saving.");
+      setFitSignal(x => x + 1);
     } catch (e) { fail(e); } finally { setBusy(false); }
   }
   async function saveDraft(event: FormEvent) {
     event.preventDefault();
-    const route = survey?.waypoints ?? manual;
+    const route = editedRoute ?? survey?.waypoints ?? manual;
     if (!selected) return fail(new Error("Select a registered aircraft"));
     if (route.length < 2) return fail(new Error("Add two waypoints or preview a survey polygon"));
     setBusy(true);
     try {
       const draft = await saveMission({ vehicle_id: selected, title: missionTitle.trim(), waypoints: route });
       setOpenedMission(draft);
-      setSurvey(null); setPolygon([]); setManual([]); setMissionTitle("");
+      setSurvey(null); setEditedRoute(null); setPolygon([]); setManual([]); setMissionTitle("");
       setDrawMode("NONE");
       await refresh();
       notify("Saved draft " + draft.revision_sha256.slice(0, 12) + ". No flight-controller upload occurred.");
