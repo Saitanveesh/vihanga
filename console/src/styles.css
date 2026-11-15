@@ -160,3 +160,218 @@ body{letter-spacing:.05px}
 .connection-session strong{font-size:12px}
 .connection-session button{margin-top:5px;background:#304b57;border:1px solid #74909b;color:#f0f7f9;border-radius:6px;padding:9px;font-weight:700;cursor:pointer}
 .connection-session button:disabled{opacity:.5;cursor:not-allowed}
+
+
+/* Vihanga operator workspaces: unified type, contrast and layout.
+   Stable information architecture, not a separate decorative landing page. */
+:root {
+  --ink:#eaf3f7; --ink-quiet:#9db1bb; --ink-faint:#78919d;
+  --line:#354954; --line-strong:#5b7783; --base:#0a1219;
+  --surface:#14222d; --surface-raised:#1c2e3a;
+  --teal:#4cd0b9; --teal-deep:#236b65; --amber:#edbd79;
+}
+body{background:var(--base);font-size:13px;-webkit-font-smoothing:antialiased}
+button,input,select{transition:border-color .15s ease,background-color .15s ease,color .15s ease}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{
+  outline:2px solid var(--teal);outline-offset:3px
+}
+.workspace{min-height:610px;background:var(--base)}
+.rail{width:78px;background:#0b161e;border-right-color:#2a4050}
+.identity{padding:18px 0 30px;gap:8px}
+.identity span{border-color:#5baeb0;color:#e2faf5;background:#122c35;border-radius:12px;font-size:24px}
+.identity b{font-size:10px;letter-spacing:1.2px}
+.rail nav{gap:7px;padding:0 8px}
+.rail-item{padding:11px 5px;gap:8px;min-height:64px;border-radius:9px;color:#96aeba}
+.rail-item:hover{background:#1c2d39;color:#e6f5fa}
+.rail-item.selected{background:#24443f;border-color:#3f867d;color:#b4f3e4}
+.rail-icon{display:grid;place-items:center;height:23px}
+.rail-item small{font-size:9px;letter-spacing:.6px;font-weight:700}
+.fleetbar{width:256px;background:#111f2a;border-right-color:#2e4552}
+.fleetbar-head{padding:24px 18px 7px;font-size:11px;letter-spacing:1.4px}
+.fleetbar-head strong{font-size:12px;background:#243d49;color:#d8ebef}
+.fleet-search-note{font-size:11px;padding:0 18px 17px}
+.fleet-filters{padding:0 12px 18px}
+.fleet-filters>input{font-size:12px;padding:12px 10px;border-radius:8px;background:#0c1923}
+.filter-buttons{gap:6px}
+.filter-buttons button{font-size:11px;padding:9px 4px;border-radius:6px}
+.filter-buttons button.selected{background:#264e49;border-color:#408d80;color:#c9f8eb}
+.aircraft-items{padding:0 12px}
+.aircraft-item{background:#192a35;min-height:85px;padding:13px 11px;border-radius:10px}
+.aircraft-item.current{border-color:#57a6a1;background:#263e47;box-shadow:inset 3px 0 0 #62cfb5}
+.aircraft-icon{background:#294552;color:#d4f0f2;border-radius:8px;width:33px;height:33px}
+.aircraft-info strong{font-size:13px;color:#f0f8fa}
+.aircraft-info span{font-size:11px}
+.aircraft-info small{font-size:10px}
+.add-aircraft{font-size:12px;padding:13px 10px;margin:14px 12px}
+.fleetbar-foot{padding:18px 15px;gap:13px}
+.fleetbar-foot div,.fleetbar-foot b{font-size:10px}
+.toolbar{height:70px;background:#13232f;border-bottom:1px solid #405664;padding:0 25px;gap:16px}
+.toolbar-leading{gap:13px;font-size:13px;letter-spacing:.5px}
+.toolbar-leading strong{font-size:15px;letter-spacing:.65px}
+.toolbar-subtitle{font-size:12px;color:#bdcbd1;max-width:240px}
+.product-label{font-size:11px;color:#76a8b7;font-weight:650;letter-spacing:.6px}
+.toolbar-button{font-size:12px;padding:10px 15px;border-radius:8px}
+.toolbar-button.accent{background:#267f72;border-color:#49aa99}
+.link-chip,.vehicle-chip{font-size:11px;padding:10px 12px;border-radius:8px}
+.link-chip.ok{background:#193d37;color:#9cf1d4;border-color:#3b8674}
+.map-stage{background:#10232d}
+.map-tools{top:14px;right:59px;padding:5px;background:#132631f2;border-color:#506e7d;border-radius:10px}
+.map-tools button{font-size:12px;padding:10px 13px}
+.map-tools button.chosen{background:#2a6c64;color:#e7faf6}
+.operation-ribbon{top:15px;left:20px;border-color:#57717d;background:#142733f3;gap:6px;padding:6px;border-radius:9px}
+.operation-ribbon button{display:flex;align-items:center;gap:8px;font-size:12px;padding:10px 13px}
+.operation-ribbon button:first-child,.operation-ribbon button:nth-child(2){color:#f4d6a8}
+.command-lock{display:inline-flex;align-items:center;gap:7px;padding:0 9px;color:#a7b7bf;font-size:11px;font-weight:650;white-space:nowrap}
+.float-panel{top:77px;left:20px;background:#142530f7;border:1px solid #526c78;
+  border-radius:12px;box-shadow:0 16px 42px #0009;backdrop-filter:blur(15px)}
+.flight-summary{width:355px}
+.panel-title{padding:18px 18px 17px;align-items:center}
+.panel-title h2{font-size:18px;letter-spacing:-.3px}
+.panel-title span{font-size:10px;letter-spacing:.6px;color:#a5bbc5}
+.status-rows{padding:8px 18px}
+.status-rows>div,.plan-stats>div{font-size:12px;padding:11px 0;border-bottom-color:#304754}
+.status-rows strong,.plan-stats strong{font-size:12px}
+.panel-footnote{font-size:11px;color:#a0b4bd}
+.map-coordinates{bottom:15px;left:20px;font-size:10px;border:1px solid #425766;background:#13222de8;
+  padding:9px 13px;border-radius:8px;max-width:min(600px,88%)}
+.plan-panel{width:390px}
+.plan-tabs button{font-size:12px;padding:11px}
+.plan-section-label,.panel-section-label{font-size:10px}
+.toggle-row button,.plan-buttons button{font-size:12px}
+.survey-controls label{font-size:12px}
+.value-row input.value-box{width:68px;font-size:12px}
+.major{font-size:12px;padding:13px;border-radius:8px;background:#287e72;border-color:#51ad9e}
+.major:hover:not(:disabled){background:#349585}
+.form-stack label,.save-form label{font-size:12px}
+.form-stack input,.form-stack select,.save-form input{font-size:13px;padding:12px;border-radius:8px}
+.history-list span{font-size:12px}.history-list small{font-size:10px}
+.connect-dialog{width:min(520px,100%);border-color:#62808e;background:#142530;border-radius:15px}
+.dialog-head{padding:22px 24px}
+.dialog-head h2{font-size:23px}
+.transport-tabs.five button{font-size:11px;padding:12px 3px}
+.dialog-info{font-size:12px}
+.toast{font-size:12px;max-width:min(450px,85vw)}
+.toast button{padding:0 3px;line-height:1}
+
+/* Real-time systems card: measurements are blank when packets are missing. */
+.systems-panel{position:absolute;right:20px;top:77px;width:288px;z-index:2;
+  max-height:calc(100% - 96px);overflow-y:auto;border:1px solid #526d79;
+  background:#142530f6;color:#edf7f9;box-shadow:0 16px 42px #0009;
+  border-radius:12px;backdrop-filter:blur(14px)}
+.systems-head{display:flex;justify-content:space-between;align-items:center;gap:10px;
+  padding:17px 17px 14px;border-bottom:1px solid #2e4755}
+.systems-eyebrow{font-size:9px;letter-spacing:1.2px;color:#80a4b0;font-weight:750}
+.systems-head h2{font:700 17px "Space Grotesk",sans-serif;margin:5px 0 0}
+.systems-led{height:10px;width:10px;background:#997a64;border-radius:50%;flex-shrink:0}
+.systems-led.up{background:#48d0ad;box-shadow:0 0 0 4px #2b6e5b55}
+.systems-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0}
+.systems-metrics>div{padding:17px 14px 14px;display:flex;flex-direction:column;gap:7px;
+  min-height:99px;border-right:1px solid #2d4350;border-bottom:1px solid #2d4350}
+.systems-metrics>div:nth-child(2n){border-right:0}
+.systems-metrics span{font-size:10px;color:#95b1bb;font-weight:650}
+.systems-metrics strong{font:700 16px "Space Grotesk",sans-serif;color:#f0f8fa;white-space:nowrap}
+.systems-metrics small{font-size:10px;color:#9aacb5;line-height:1.35}
+.systems-health{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid #304755;
+  font-size:11px;color:#a6e5d5}
+.systems-health span{flex:1}.systems-health strong{font-size:12px;color:#d8f8ef}
+.systems-video{padding:14px 15px 15px}
+.systems-video header,.systems-video header span{display:flex;align-items:center;gap:7px}
+.systems-video header{justify-content:space-between}
+.systems-video header span{font-size:12px;font-weight:750;color:#e0f0f4}
+.systems-video header button{border:1px solid #527584;background:#203b48;color:#d1edf2;
+  padding:6px 10px;border-radius:6px;font-size:10px;font-weight:700}
+.systems-video p{font-size:11px;color:#98b0ba;line-height:1.6;margin:10px 0}
+.systems-video iframe{width:100%;height:152px;border:1px solid #526b76;border-radius:8px;background:#101c25;margin-top:12px}
+.systems-open-video{width:100%;padding:10px 11px;margin-top:9px;background:#233d49;border:1px solid #487482;
+  color:#cdeaf0;border-radius:7px;display:flex;justify-content:space-between;font-size:11px;font-weight:750}
+
+/* Video is a dedicated operational workspace, not a thumbnail over a map. */
+.video-panel{width:min(780px,calc(100% - 44px));top:24px;left:50%;transform:translateX(-50%);
+  max-height:calc(100% - 48px);background:#122330fa}
+.video-panel .panel-title{padding:20px 23px 15px}
+.video-panel .panel-title h2{display:flex;align-items:center;gap:11px;font-size:20px}
+.video-panel .form-stack{display:grid;grid-template-columns:minmax(0,1fr) 146px;
+  align-items:end;gap:12px;padding:16px 22px}
+.video-panel .form-stack label{min-width:0}
+.video-panel .form-stack .major{margin:0;height:44px}
+.video-container{padding:0 22px 20px}
+.video-container iframe{display:block;width:100%;height:min(46vh,445px);min-height:240px;
+  background:#07121a;border:1px solid #5a7b86;border-radius:10px}
+.video-container a{display:inline-flex;margin-top:12px;font-weight:750;color:#91e2cf}
+.video-panel .panel-footnote{padding:14px 22px 20px}
+
+/* Professional flight-readout scale without masking missing data. */
+.instrument-dock{height:155px;grid-template-columns:minmax(0,1fr) 245px minmax(0,1fr);
+  background:#101c25;border-top:1px solid #45616e;padding:10px 19px;gap:14px}
+.dock-readouts{gap:5px}
+.dock-readouts>div{min-height:74px;padding:9px 13px;gap:8px}
+.dock-readouts small{font-size:10px;color:#91adba;letter-spacing:.7px}
+.dock-readouts strong{font-size:18px;color:#f3f8fa}
+.dock-readouts strong span{font-size:11px}
+.primary-instruments{gap:18px}
+.attitude-face,.compass-face{height:95px;width:95px}
+.instrument-name{font-size:9px}
+.instrument-values{display:flex;gap:8px;font-size:10px;color:#c7e4e9;font-variant-numeric:tabular-nums}
+.instrument-values span{white-space:nowrap}
+
+@media(max-width:1400px){
+  .fleetbar{width:226px}.rail{width:72px}
+  .systems-panel{width:263px}
+  .flight-summary{width:325px}
+  .instrument-dock{grid-template-columns:minmax(0,1fr) 225px minmax(0,1fr);gap:7px;padding:9px}
+  .dock-readouts strong{font-size:15px}.dock-readouts small{font-size:9px}
+  .dock-readouts>div{padding:7px}
+}
+@media(max-width:1130px){
+  .systems-panel{display:none}
+  .toolbar-subtitle{display:none}
+  .float-panel{width:min(390px,calc(100% - 40px))}
+  .video-panel{width:min(720px,calc(100% - 36px))}
+  .instrument-dock{height:135px;grid-template-columns:minmax(0,1fr) 190px minmax(0,1fr)}
+  .attitude-face,.compass-face{height:78px;width:78px}
+}
+@media(max-width:840px){
+  .rail{width:64px}.fleetbar{width:180px}
+  .rail-item small{font-size:8px}.toolbar{height:61px;padding:0 12px}
+  .toolbar-leading .product-label,.toolbar-leading .toolbar-separator{display:none}
+  .vehicle-chip{display:none}.map-tools{right:51px}
+  .instrument-dock{height:120px;grid-template-columns:minmax(0,1fr) 160px minmax(0,1fr)}
+  .attitude-face,.compass-face{height:65px;width:65px}
+  .dock-readouts strong{font-size:13px}.dock-readouts small{font-size:8px}
+}
+@media(max-width:650px){
+  .workspace{height:100dvh;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .rail{width:100%;height:64px;flex-direction:row;flex-shrink:0}
+  .identity{padding:8px 10px;flex-direction:row;gap:8px}
+  .identity span{width:33px;height:33px;font-size:20px}
+  .rail nav{flex-direction:row;overflow-x:auto;flex:1;padding:3px 4px;gap:1px}
+  .rail-item{padding:5px 9px;min-width:48px;min-height:53px;gap:3px}
+  .rail-icon{height:18px}.rail-icon svg{height:18px;width:18px}
+  .fleetbar{width:100%;height:99px;flex-shrink:0;padding:8px 0}
+  .fleetbar-head,.fleet-search-note,.fleetbar-foot,.add-aircraft,.fleet-filters{display:none}
+  .aircraft-items{display:flex;gap:8px;overflow-x:auto}
+  .aircraft-item{margin:0;min-width:165px;min-height:76px;max-width:195px}
+  .main-area{height:calc(100dvh - 163px);min-height:0;flex:1}
+  .toolbar{height:54px;padding:0 10px;gap:5px}.toolbar-leading strong{font-size:12px}
+  .link-chip{font-size:9px;padding:7px}.toolbar-button{padding:9px;font-size:10px}
+  .float-panel{top:70px;left:10px;width:min(360px,calc(100% - 20px));max-height:calc(100% - 85px)}
+  .video-panel{left:50%;top:12px;width:calc(100% - 20px);max-height:calc(100% - 24px)}
+  .video-panel .form-stack{display:flex;flex-direction:column;align-items:stretch}
+  .video-panel .form-stack .major{height:auto}
+  .video-container iframe{height:min(36vh,300px);min-height:185px}
+  .operation-ribbon{left:10px;top:10px;max-width:calc(100% - 20px)}
+  .operation-ribbon button{padding:8px 7px;font-size:10px}
+  .command-lock{font-size:9px}
+  .map-tools{top:66px;right:8px}.map-tools button{padding:7px;font-size:10px}
+  .map-coordinates{bottom:8px;left:9px;max-width:calc(100% - 18px);font-size:9px}
+  .instrument-dock{height:112px;grid-template-columns:1fr 116px 1fr;gap:3px;padding:5px}
+  .dock-readouts{gap:1px}.dock-readouts>div{min-height:auto;padding:3px 2px;gap:2px}
+  .dock-readouts small{font-size:7px}.dock-readouts strong{font-size:11px}
+  .primary-instruments{gap:4px}
+  .attitude-face,.compass-face{width:52px;height:52px}
+  .instrument-name{font-size:7px}.instrument-values{display:none}
+  .toast{bottom:15px}
+}
+@media(prefers-reduced-motion:reduce){
+  button,input,select{transition:none}
+}

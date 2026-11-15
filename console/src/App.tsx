@@ -1,20 +1,41 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import GeoMap, { type MapPoint } from "./GeoMap";
 import FlightInstruments from "./FlightInstruments";
+import UiIcon, { type IconName } from "./UiIcon";
+import SystemsPanel from "./SystemsPanel";
 import {
   connectBroker, connectCloud, connectUDP, connectTCP, connectSerial, disconnectLink, getHealth, getMissions,
-  getTelemetry, getObservedTrack, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
+  getFleetTelemetry, getObservedTrack, getVehicles, previewSurvey, previewCircularSurvey, registerVehicle, saveMission,
   type Health, type Mission, type SurveyPreview, type Telemetry,
   type Vehicle, type VehicleCreate, type Waypoint
 } from "./api";
 
 type Section = "FLIGHT" | "PLAN" | "FLEET" | "LINK" | "HISTORY" | "VIDEO";
 type DrawMode = "NONE" | "POLYGON" | "WAYPOINT";
-const sections: { label: Section; icon: string }[] = [
-  { label: "FLIGHT", icon: "◈" }, { label: "PLAN", icon: "⌖" },
-  { label: "FLEET", icon: "▦" }, { label: "LINK", icon: "⇄" },
-  { label: "HISTORY", icon: "◷" }, { label: "VIDEO", icon: "▣" }
+const sections: { label: Section; icon: IconName }[] = [
+  { label: "FLIGHT", icon: "flight" }, { label: "PLAN", icon: "plan" },
+  { label: "FLEET", icon: "fleet" }, { label: "LINK", icon: "link" },
+  { label: "HISTORY", icon: "history" }, { label: "VIDEO", icon: "video" }
 ];
+
+function privateCameraUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname.toLowerCase().endsWith(".ts.net")
+      && !url.username && !url.password && !url.search && !url.hash
+      && (url.port === "" || url.port === "443" || url.port === "8443");
+  } catch { return false; }
+}
+function restoredCameras(): Record<string, string> {
+  try {
+    const saved: unknown = JSON.parse(window.localStorage.getItem("vihanga.camera.pages.v1") || "{}");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+    return Object.fromEntries(Object.entries(saved).filter(([id, url]) =>
+      /^[A-Z0-9][A-Z0-9_-]{2,31}$/.test(id) &&
+      typeof url === "string" && privateCameraUrl(url)
+    ));
+  } catch { return {}; }
+}
 
 function linkLabel(status?: string) {
   return status === "LIVE" ? "LIVE TELEMETRY" :
@@ -71,7 +92,8 @@ export default function App() {
   const [serialBaud, setSerialBaud] = useState(57600);
   const [sysid, setSysid] = useState(1);
   const [cameraInput, setCameraInput] = useState("");
-  const [cameraUrl, setCameraUrl] = useState("");
+  const [cameraPages, setCameraPages] = useState<Record<string, string>>(restoredCameras);
+  useEffect(() => { setCameraInput(cameraPages[selected] ?? ""); }, [selected]);
 
   async function refresh() {
     try {
@@ -90,21 +112,21 @@ export default function App() {
   useEffect(() => {
     if (vehicles.length === 0) { setReadings({}); return; }
     let mounted = true;
+    let inflight = false;
     async function poll() {
-      const pairs = await Promise.all(vehicles.map(async v => {
-        try { return [v.vehicle_id, await getTelemetry(v.vehicle_id)] as const; }
-        catch { return null; }
-      }));
-      if (mounted) {
-        const next: Record<string, Telemetry> = {};
-        pairs.forEach(pair => { if (pair) next[pair[0]] = pair[1]; });
-        setReadings(next);
-      }
+      if (inflight) return;
+      inflight = true;
+      try {
+        const next = await getFleetTelemetry();
+        if (mounted) setReadings(next);
+      } catch {
+        // A selected-aircraft WebSocket still updates independently.
+      } finally { inflight = false; }
     }
     void poll();
     const handle = window.setInterval(() => void poll(), 1600);
     return () => { mounted = false; window.clearInterval(handle); };
-  }, [vehicles]);
+  }, [vehicles.length]);
 
 
   // Low-latency local viewer; the backend streams only real FC-derived state.
@@ -162,6 +184,7 @@ export default function App() {
 
   const active = vehicles.find(v => v.vehicle_id === selected);
   const sample = readings[selected];
+  const cameraUrl = cameraPages[selected] ?? "";
   const location = sample?.latitude != null && sample.longitude != null
     ? { latitude: sample.latitude, longitude: sample.longitude } : null;
   const waypoints = openedMission?.waypoints ?? editedRoute ?? survey?.waypoints ?? manual;
@@ -321,13 +344,15 @@ export default function App() {
   function setVideo(event: FormEvent) {
     event.preventDefault();
     try {
-      const parsed = new URL(cameraInput);
-      if (parsed.protocol !== "https:" || !parsed.hostname.toLowerCase().endsWith(".ts.net")
-          || parsed.username || parsed.password) {
-        throw new Error("For development, camera URL must be a private HTTPS *.ts.net endpoint");
-      }
-      setCameraUrl(parsed.href);
-      notify("Camera page selected. Video availability depends on the actual stream endpoint.");
+      if (!selected) throw new Error("Select an aircraft before configuring video");
+      if (!privateCameraUrl(cameraInput))
+        throw new Error("Use a private HTTPS *.ts.net camera URL without credentials or query tokens");
+      const page = new URL(cameraInput).href;
+      const pages = { ...cameraPages, [selected]: page };
+      setCameraPages(pages);
+      try { window.localStorage.setItem("vihanga.camera.pages.v1", JSON.stringify(pages)); }
+      catch { /* Browser storage disabled; current session still works. */ }
+      notify("Camera configured for " + selected + ".");
     } catch (e) { fail(e); }
   }
 
@@ -339,10 +364,10 @@ export default function App() {
           {sections.map(item => <button key={item.label} type="button"
             className={"rail-item " + (section === item.label ? "selected" : "")}
             onClick={() => navigate(item.label)} aria-current={section === item.label ? "page" : undefined}>
-            <span className="rail-icon">{item.icon}</span><small>{item.label}</small>
+            <span className="rail-icon"><UiIcon name={item.icon} size={21}/></span><small>{item.label}</small>
           </button>)}
         </nav>
-        <div className="rail-foot">GCS / 0.2</div>
+        <div className="rail-foot">GCS / 0.14</div>
       </aside>
       <aside className="fleetbar">
         <div className="fleetbar-head"><span>AIRCRAFT</span><strong>{vehicles.length}</strong></div>
@@ -381,7 +406,7 @@ export default function App() {
           <div className="toolbar-leading">
             <span className="product-label">VIHANGA / OPERATIONS</span>
             <span className="toolbar-separator">/</span>
-            <strong>{section === "PLAN" ? "MISSION PLANNING" : section}</strong>
+            <strong>{section === "PLAN" ? "MISSION PLANNING" : section === "VIDEO" ? "LIVE VIDEO" : section === "LINK" ? "LINK HEALTH" : section}</strong>
             <span className="toolbar-subtitle">{active?.label || "No aircraft selected"}</span>
           </div>
           <div className="toolbar-right">
@@ -408,15 +433,11 @@ export default function App() {
               onClick={() => setFitSignal(x => x + 1)}>Fit route</button>
           </div>
           {(section === "FLIGHT" || section === "PLAN") && <div className="operation-ribbon" role="toolbar" aria-label="Mission and aircraft operations">
-            <button onClick={() => { navigate("PLAN"); setDrawMode("POLYGON"); }} title="Draw survey boundary">▦ <span>Survey</span></button>
-            <button onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints">⌖ <span>Waypoints</span></button>
-            <button onClick={() => navigate("HISTORY")} title="View stored mission drafts">◷ <span>Routes</span></button>
+            <button onClick={() => { navigate("PLAN"); setDrawMode("POLYGON"); }} title="Draw survey boundary"><UiIcon name="plan" size={15}/> <span>Area</span></button>
+            <button onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints"><UiIcon name="map" size={15}/> <span>Waypoints</span></button>
+            <button onClick={() => navigate("HISTORY")} title="View stored mission drafts"><UiIcon name="history" size={15}/> <span>Routes</span></button>
             <span className="ribbon-divider"/>
-            <button disabled title="ARM requires an authorized physical command link">ARM</button>
-            <button disabled title="TAKEOFF requires an authorized physical command link">TAKEOFF</button>
-            <button disabled title="RTL requires an authorized physical command link">RTL</button>
-            <button disabled title="LAND requires an authorized physical command link">LAND</button>
-            <span className="ribbon-state">COMMANDS LOCKED</span>
+            <span className="command-lock" title="This telemetry release contains no physical command transport"><UiIcon name="lock" size={14}/> Flight controls unavailable</span>
           </div>}
           {section === "FLIGHT" && <div className="float-panel flight-summary">
             <div className="panel-title"><h2>Flight status</h2><span>{active?.label || "No aircraft selected"}</span></div>
@@ -432,6 +453,8 @@ export default function App() {
             </div>
             <p className="panel-footnote">Only validated, fresh MAVLink telemetry is shown. Aircraft control is unavailable in this software release.</p>
           </div>}
+          {section === "FLIGHT" && <SystemsPanel telemetry={sample} vehicleId={selected}
+            cameraUrl={cameraUrl} onOpenVideo={() => navigate("VIDEO")}/>}
           {section === "PLAN" && <section className="float-panel plan-panel">
             <div className="panel-title">
               <h2>Survey planner</h2>
@@ -560,6 +583,7 @@ export default function App() {
               <div><span>Transport</span><strong>{sample?.transport || "NONE"}</strong></div>
               <div><span>Status</span><strong>{linkLabel(sample?.status)}</strong></div>
               <div><span>Frames received</span><strong>{sample?.frames_total ?? 0}</strong></div>
+              <div><span>Frame rate (5 s)</span><strong>{sample ? sample.frame_rate_5s_hz.toFixed(2) + " Hz" : "—"}</strong></div>
               <div><span>Observed track points</span><strong>{observedTrack.length}</strong></div>
               <div><span>Local telemetry viewer</span><strong>{liveTransportConnected ? "WEBSOCKET ACTIVE" : "POLLING"}</strong></div>
               <div><span>Rejected frames</span><strong>{sample?.rejected_frames ?? 0}</strong></div>
@@ -587,7 +611,8 @@ export default function App() {
             <p className="panel-footnote">This is a real record of stored mission drafts, not a log of flights that did not occur.</p>
           </section>}
           {section === "VIDEO" && <section className="float-panel utility-panel video-panel">
-            <div className="panel-title"><h2>Camera</h2><span>Independent video path</span></div>
+            <div className="panel-title"><h2><UiIcon name="video" size={20}/> Camera workstation</h2>
+              <span>PRIVATE WEBRTC / {selected || "NO AIRCRAFT"}</span></div>
             <form onSubmit={setVideo} className="form-stack">
               <label>Private stream page (HTTPS)<input value={cameraInput} type="url" required
                 placeholder="https://aircraft.ts.net/cam"
@@ -596,8 +621,8 @@ export default function App() {
             </form>
             {cameraUrl && <div className="video-container">
               <iframe title="Authenticated aircraft camera" src={cameraUrl}
-                referrerPolicy="no-referrer" allow="autoplay; fullscreen"/>
-              <a href={cameraUrl} target="_blank" rel="noreferrer">Open camera in separate window</a>
+                referrerPolicy="no-referrer" allow="autoplay; fullscreen" allowFullScreen/>
+              <a href={cameraUrl} target="_blank" rel="noopener noreferrer">Open full camera page ↗</a>
             </div>}
             {!cameraUrl && <p className="panel-footnote">Enter an actual authenticated MediaMTX/WebRTC camera page. No stock video is displayed.</p>}
           </section>}

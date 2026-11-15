@@ -76,6 +76,12 @@ export interface Telemetry {
   battery_pct: number | null;
   gps_fix_type: number | null;
   satellites: number | null;
+  gps2_fix_type: number | null;
+  gps2_satellites: number | null;
+  battery_current_a: number | null;
+  airspeed_mps: number | null;
+  throttle_pct: number | null;
+  frame_rate_5s_hz: number;
   mode: string | null;
   armed: boolean | null;
   age_ms: number | null;
@@ -137,6 +143,7 @@ export const getHealth = () => request<Health>("health");
 export const getVehicles = () => request<Vehicle[]>("vehicles");
 export const getMissions = () => request<Mission[]>("missions");
 export const getTelemetry = (id: string) => request<Telemetry>("telemetry/" + encodeURIComponent(id));
+export const getFleetTelemetry = () => request<Record<string, Telemetry>>("fleet/telemetry");
 export const registerVehicle = (input: VehicleCreate) => jsonPost<{ vehicle_id: string }>("vehicles", input);
 export const saveMission = (input: MissionCreate) => jsonPost<Mission>("missions", input);
 export const previewSurvey = (input: {
