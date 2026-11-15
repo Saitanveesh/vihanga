@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from vihanga.survey import router as survey_router
-from vihanga.telemetry import CloudConnect, UDPConnect, LinkManager
+from vihanga.telemetry import CloudConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -123,6 +123,26 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(ex)) from ex
         except OSError as ex:
             raise HTTPException(status_code=409, detail="Local UDP port unavailable") from ex
+
+    @app.post("/api/v1/links/serial")
+    async def connect_serial(request: SerialConnect):
+        require_vehicle(request.vehicle_id)
+        try:
+            return await links.start_serial(request)
+        except ValueError as ex:
+            raise HTTPException(status_code=422, detail=str(ex)) from ex
+        except Exception as ex:
+            raise HTTPException(status_code=409, detail="Serial port cannot be opened") from ex
+
+    @app.post("/api/v1/links/tcp")
+    async def connect_tcp(request: TCPConnect):
+        require_vehicle(request.vehicle_id)
+        try:
+            return await links.start_tcp(request)
+        except ValueError as ex:
+            raise HTTPException(status_code=422, detail=str(ex)) from ex
+        except OSError as ex:
+            raise HTTPException(status_code=409, detail="Local TCP endpoint unavailable") from ex
 
     @app.delete("/api/v1/links/{vehicle_id}")
     async def disconnect_link(vehicle_id: str):
