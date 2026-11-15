@@ -142,3 +142,24 @@ def test_nonfinite_health_timestamp_cannot_grant_authority():
     authority, lease, health, _ = setup()
     with pytest.raises(Refused, match="STALE_HEALTH"):
         issue(authority, lease, replace(health, observed_at=float("nan")))
+
+
+def test_expired_pilot_lease_releases_previous_command_and_rotates_epoch():
+    authority, lease, health, instant = setup()
+    previous = issue(authority, lease, health, action=Action.RTL)
+    authority.encode(previous.command_id)
+    assert authority.active["TEST-001"] == previous.command_id
+    old_epoch = lease.epoch
+    instant[0] += 31.0
+    newer_health = replace(health, observed_at=instant[0])
+    next_lease = authority.claim("TEST-001", "pilot-b", "PILOT", newer_health)
+    assert next_lease.epoch == old_epoch + 1
+    assert next_lease.token != lease.token
+    assert previous.status == Status.UNKNOWN
+    assert previous.reason == "REVOKED_LEASE_EXPIRED"
+    assert authority.active.get("TEST-001") is None
+    with pytest.raises(Refused, match="NO_ACTIVE_PILOT_LEASE"):
+        issue(authority, lease, newer_health, sequence=2)
+    current = issue(authority, next_lease, newer_health, sequence=1)
+    assert current.status == Status.PENDING
+    assert authority.active["TEST-001"] == current.command_id
