@@ -1,41 +1,69 @@
-# Vihanga standalone architecture
+# Vihanga architecture and qualification boundary
 
-## Product boundary
+**Baseline:** independent Vihanga v0.11, 15 November 2026. The current executable ground station is built from React/TypeScript and a local Python API. It has no runtime dependency on Mission Planner, and this repository does not contain a physical flight-control writer.
 
-Vihanga is an original, cross-platform operations platform, not a rebranded Mission Planner fork. Avoid copying upstream Mission Planner source, screens, imagery or GPL-covered implementation into this working tree. Independent protocol implementations must comply with any libraries' licenses.
+## Implemented read-only telemetry path
 
-\`\`\`text
-Operator console (React + TypeScript)
-  | authenticated API / event streams (future)
-  v
-Vihanga cloud control plane
-  | scoped aircraft identity / per-aircraft authority (future)
-  v
-Vihanga edge agent, interchangeable transport (future)
-  | full-duplex MAVLink behind local safety arbiter (future)
-  v
-ArduPilot / PX4 flight controller
-  ^ independent pilot radio, onboard failsafes
-\`\`\`
+~~~text
+Flight controller --MAVLink2 serial--> Raspberry Pi edge
+           (UART owner, validation, local serial lock)
+                                      |
+                                      | outbound authenticated WSS
+                                      v
+                     Vihanga cloud telemetry broker
+                    (per-aircraft and per-role tokens,
+                     CRC/SYSID checks, bounded queues)
+                                      |
+                                      | authenticated viewer WSS
+                                      v
+                      Local Vihanga Python operations API
+                     (freshness, attitude/GPS projection,
+                      per-vehicle sessions, observed tracks)
+                                      |
+                                      | REST + live WebSocket
+                                      v
+                       React/TypeScript GCS (MapLibre)
+~~~
 
-## This increment — implemented
+The cloud broker does not support commands. Every edge agent is strictly receive-only on serial; the cloud WebSocket viewer cannot send a MAVLink message back to the Pi. The GCS also supports local UDP SITL and receive-only serial/TCP links, plus a separate connector to the earlier Oracle private relay.
 
-- Local operations console and API health.
-- SQLite-backed aircraft registry; aircraft stay OFFLINE without authenticated live evidence.
-- SQLite-backed bounded mission-draft lifecycle; immutable SHA-256 revision per draft.
-- Validation of waypoint coordinates and altitude, deterministic route-length calculation.
-- No cloud broker, live telemetry, camera stream, command dispatch or flight authorization.
+## Separate protocol components (not connected to the above)
 
-## Future integration layers
+- **Supervised SITL authority:** one pilot lease per vehicle, command sequence validation, bounded expiry, MAVLink command serialization, FC COMMAND_ACK processing and independently observed post-ACK effects. The last observation must be fresh and newer than the ACK; an ACK alone never proves execution.
+- **Mission protocol state machine:** deterministic waypoint revision, MISSION_ITEM_INT transfer, bounded retry count, rejection on wrong FC identity and verified item-by-item readback. Readback is not evidence of mission execution.
 
-**Edge:** Rust or Go service on Pi/industrial hardware, one MAVLink serial owner, physically verified 3.3V UART/electrical interface, identity-bound device enrollment, externally supervised pilot authority, watchdog and safe disconnected operation.
+These components are libraries used by tests. They do not create an API command endpoint, broker downlink or edge serial writer. The README capability matrix is the source of truth for operator-facing features.
 
-**Cloud:** authenticated, per-vehicle transport; one exclusive command owner and many observers; bounded queues, explicit no-replay semantics and durable audit; command state distinguishes issued, relayed, FC-ACKed and observed effect. TLS protects transport; MAVLink2 signing alone is not encryption.
+## Identity and trust boundaries
 
-**GCS:** aircraft status, map with actual GNSS, waypoint/survey planner, live video, operations, fleet, diagnostics, administrator settings, safety approvals. A clean responsive UX for Windows, Linux and browsers with an optional packaged desktop shell.
+1. Each aircraft has an explicit ID, verified expected MAVLink SYSID, organization and independent device/viewer credentials. Reused token digests across roles or aircraft fail configuration.
+2. MAVLink CRC and SYSID/component checks provide corruption and basic message provenance checks, **not** cryptographic authenticity. TLS, device token custody, a private gateway and an independently hardened operator identity provider are required.
+3. The local GCS API is a development service with no application login. Never expose its loopback ports to an untrusted network.
+4. A receiver connection is not equivalent to fresh aircraft telemetry. LIVE needs fresh FC HEARTBEAT and ATTITUDE; coordinates are never published from a position received without a valid GPS fix.
+5. Transport reconnection starts a new viewer state. Data are not replayed as fresh across device or local GCS connection epochs.
+6. Camera access is separate from FC telemetry; neither path implies command authority.
 
-**Acceptance:** simulator-only command integration first, then HIL, disarmed propeller-free controller bench, supervised field testing. No arbitrary raw MAVLink write endpoint. Never place cloud round-trip timing inside stabilization or emergency avoidance loops.
+## CI evidence versus release acceptance
 
-## Non-goals of initial implementation
+| Gate | Current evidence | Unverified requirement |
+| --- | --- | --- |
+| Per-aircraft device/viewer boundaries | Cloud ACL + credential uniqueness tests | Production OIDC/MFA, credential rotation, revocation and audit |
+| Frame integrity and freshness | Edge gate, broker CRC, local projector and cross-service integration CI | Real Pi UART, TLS gateway and authenticated backend network soak |
+| Operator interface | TypeScript bundle and API tests | Real on-screen QA, accessibility and performance |
+| Mission draft and protocol | Unit tests including exact FC readback | Field mission planner safety review, HIL, geofence/terrain clearance |
+| Simulated command lifecycle | Lease, timeout, anti-replay, FC ACK + effect tests | True SITL command transport, fault injection, operator controls |
+| Physical flight control | None | Independent safety assessment and staged HIL/bench/field acceptance |
+| Fleet scale | 12 provisioned identities tested | 12 *simultaneous live* vehicles under representative loads |
+| Staging | Docker Compose validated in GitHub Actions | Dedicated private VM deployment, TLS and monitoring |
 
-No pretending to operate twelve live UAVs, no spoofed HUD, no public cloud deployment, no flight-control API, no auto-arm, no mission upload to a physical FC, no artificial flight telemetry. The standalone console may be used to develop future features without placing the existing airframe at risk.
+Protocol integration tests use encoded MAVLink2 bytes with real FastAPI WebSocket sessions, but the GCS projector is attached in-process. This is not a substitute for an independent e2e test over actual network endpoints.
+
+## Qualification sequence
+
+1. Local protocol regression, failure injection and executable UI smoke tests.
+2. Real simulator (ArduPilot SITL) with controlled duplex transport, lease expiry, ACK and effect assertions.
+3. Private staging broker, Pi physical UART read-only acceptance and measured 24-hour endurance.
+4. Physically separated HIL and propeller-free authorization testing, with RC/manual override precedence and deterministic link-loss behavior.
+5. Site-approved range trial, explicit checklists, audit records and controlled release.
+
+Do not put cloud round-trip latency into flight stabilization, attitude control, emergency response or collision avoidance loops. In particular, a successful command ACK must not be treated as verified state transition.

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from io import BytesIO
 
 import pytest
@@ -104,3 +105,12 @@ def test_twelve_aircraft_supported_as_isolated_provisioned_slots():
         assert broker.authorize(id, chr(68+i)*40) is broker.slots[id]
         other = f"TEST-{((i+1)%12)+1:03}"
         assert broker.authorize(other, chr(68+i)*40) is None
+
+
+def test_broker_rejects_reused_tokens_even_across_organizations_and_roles():
+    first, second = identities(2)
+    with pytest.raises(ValueError, match="Credential digests must be unique"):
+        Broker([first, replace(second, device_token_hash=first.viewer_token_hash)])
+    with pytest.raises(ValueError, match="Credential digests must be unique"):
+        Broker([replace(first, viewer_token_hash=first.device_token_hash)])
+    assert len(Broker([first, second]).slots) == 2

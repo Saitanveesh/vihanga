@@ -111,7 +111,7 @@ class Authority:
         now = self.clock()
         if not health.is_ardupilot_sitl:
             raise Refused("SITL_ONLY")
-        if health.observed_at > now or now - health.observed_at > 2:
+        if not isfinite(health.observed_at) or health.observed_at > now or now - health.observed_at > 2:
             raise Refused("STALE_HEALTH")
         if not health.heartbeat_fresh or not health.attitude_fresh:
             raise Refused("MISSING_MAVLINK")
@@ -255,8 +255,13 @@ class Authority:
         if self.clock() >= cmd.expires_at:
             self.expire(command_id)
             return False
+        # An ACK is not a flight effect. Require a genuinely newer FC snapshot;
+        # an old cached state must never complete a command after reconnect.
+        now = self.clock()
         if (health.vehicle_id != cmd.vehicle_id or health.system_id != cmd.system_id or
-                not health.heartbeat_fresh):
+                not health.heartbeat_fresh or cmd.fc_ack_at is None or
+                not isfinite(health.observed_at) or health.observed_at <= cmd.fc_ack_at or
+                health.observed_at > now or now - health.observed_at > 2):
             return False
         observed = {
             Action.ARM: health.armed is True,
