@@ -421,13 +421,14 @@ class LinkManager:
         return self.snapshot(vehicle_id)
 
     async def stop_backup(self, vehicle_id: str):
-        standby = self.standby_managers.pop(vehicle_id, None)
-        # Explicit removal of the active backup returns to primary's actual
-        # status, even when primary is stale. No fictitious LIVE fallback.
-        self.selected_sources.pop(vehicle_id, None)
-        if standby:
-            await standby.stop(vehicle_id)
-        return self.snapshot(vehicle_id)
+        async with self._standby_lock:
+            standby = self.standby_managers.pop(vehicle_id, None)
+            # Explicit removal of an active backup returns to the primary's
+            # actual status, even if stale. No fictitious LIVE fallback.
+            self.selected_sources.pop(vehicle_id, None)
+            if standby:
+                await standby.stop(vehicle_id)
+            return self.snapshot(vehicle_id)
 
     async def stop(self, vehicle_id):
         if vehicle_id in self.standby_managers:
