@@ -84,3 +84,16 @@ def test_12_aircraft_registry_isolation_without_fake_online_status(tmp_path):
         d = c.get(f"/api/v1/telemetry/UAV-{i+1:03}").json()
         assert d["status"] == "OFFLINE"
         assert d["flight_control_enabled"] is False
+
+
+def test_websocket_browser_origin_requires_local_console(tmp_path):
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+
+    _, client = setup(tmp_path)
+    path = "/ws/v1/telemetry/AIR-001"
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(path, headers={"Origin": "https://untrusted.example"}):
+            pytest.fail("Untrusted origin received a telemetry session")
+    with client.websocket_connect(path, headers={"Origin": "http://127.0.0.1:5173"}) as ws:
+        assert ws.receive_json()["status"] == "OFFLINE"
