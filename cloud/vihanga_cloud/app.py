@@ -20,6 +20,9 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
 
+MAX_VIEWERS_PER_AIRCRAFT = 16
+VIEWER_SEND_TIMEOUT_SECONDS = 2.0
+
 VEHICLE_ID = re.compile(r"^[A-Z0-9][A-Z0-9_-]{2,31}$")
 ACCEPTED_TYPES = frozenset({
     "HEARTBEAT", "ATTITUDE", "GPS_RAW_INT", "GPS2_RAW", "GLOBAL_POSITION_INT",
@@ -63,14 +66,16 @@ class Slot:
     frames_rejected: int = 0
     last_heartbeat: float = 0.0
     last_attitude: float = 0.0
+    viewer_frames_dropped: int = 0
+    viewer_send_timeouts: int = 0
     message_counts: Counter[str] = field(default_factory=Counter)
     viewers: set[asyncio.Queue] = field(default_factory=set)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def status(self) -> dict[str, Any]:
         now = time.monotonic()
-        hb = self.device_connected and (now - self.last_heartbeat <= 3)
-        att = self.device_connected and (now - self.last_attitude <= 3)
+        hb = self.device_connected and 0 < self.last_heartbeat <= now and now - self.last_heartbeat <= 3
+        att = self.device_connected and 0 < self.last_attitude <= now and now - self.last_attitude <= 3
         return {
             "vehicle_id": self.identity.vehicle_id,
             "organization": self.identity.organization,
@@ -82,6 +87,8 @@ class Slot:
             "frames_received": self.frames_received,
             "frames_rejected": self.frames_rejected,
             "viewers": len(self.viewers),
+            "viewer_frames_dropped": self.viewer_frames_dropped,
+            "viewer_send_timeouts": self.viewer_send_timeouts,
             "message_counts": dict(self.message_counts),
             "epoch": self.epoch,
             "flight_control_enabled": False
@@ -93,15 +100,10 @@ class Slot:
             self.frames_rejected += 1
             return None
         try:
-            messages = parser.parse_buffer(raw) or []
+            msg = parser.decode(bytearray(raw))
         except Exception:
             self.frames_rejected += 1
             return None
-        # Edge sends exactly one complete MAVLink packet per websocket message.
-        if len(messages) != 1:
-            self.frames_rejected += 1
-            return None
-        msg = messages[0]
         typ = msg.get_type()
         if (typ not in ACCEPTED_TYPES or msg.get_srcSystem() != self.identity.system_id
                 or msg.get_srcComponent() != 1 or bytes(msg.get_msgbuf()) != raw):
@@ -197,21 +199,16 @@ def create_app(broker: Broker | None = None) -> FastAPI:
                 if message.get("type") == "websocket.disconnect":
                     break
                 raw = message.get("bytes")
-                verified = slot.validate(raw, parser) if raw is not None else None
+                verified = slot.validate(raw, parser)
                 if verified is None:
                     continue
                 packet, _ = verified
                 now = time.monotonic()
                 for queue in tuple(slot.viewers):
                     if queue.full():
-                        try:
-                            queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            pass
-                    try:
-                        queue.put_nowait((epoch, now, packet))
-                    except asyncio.QueueFull:
-                        pass
+                        queue.get_nowait()
+                        slot.viewer_frames_dropped += 1
+                    queue.put_nowait((epoch, now, packet))
         except (WebSocketDisconnect, RuntimeError, OSError):
             pass
         finally:
@@ -229,6 +226,9 @@ def create_app(broker: Broker | None = None) -> FastAPI:
         slot = broker.authorize(vehicle_id, bearer(ws, "viewer"), viewer=True)
         if slot is None:
             await ws.close(code=4401)
+            return
+        if len(slot.viewers) >= MAX_VIEWERS_PER_AIRCRAFT:
+            await ws.close(code=1013)
             return
         queue: asyncio.Queue = asyncio.Queue(maxsize=64)
         slot.viewers.add(queue)
@@ -256,14 +256,20 @@ def create_app(broker: Broker | None = None) -> FastAPI:
                     epoch, time_received, packet = wait_for_frame.result()
                     if (slot.device_connected and slot.epoch == epoch and
                             time.monotonic() - time_received <= 1.5):
-                        await ws.send_bytes(packet)
+                        try:
+                            await asyncio.wait_for(ws.send_bytes(packet), VIEWER_SEND_TIMEOUT_SECONDS)
+                        except asyncio.TimeoutError:
+                            slot.viewer_send_timeouts += 1
+                            break
+                    else:
+                        slot.viewer_frames_dropped += 1
         except (WebSocketDisconnect, RuntimeError, OSError):
             pass
         finally:
             slot.viewers.discard(queue)
             try:
-                await ws.close(code=1000)
-            except RuntimeError:
+                await asyncio.wait_for(ws.close(code=1000), VIEWER_SEND_TIMEOUT_SECONDS)
+            except (RuntimeError, OSError, asyncio.TimeoutError):
                 pass
 
     return app

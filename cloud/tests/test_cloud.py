@@ -156,3 +156,26 @@ def test_twelve_concurrent_device_viewer_streams_are_vehicle_isolated():
             assert status["viewers"] == 1
             assert status["flight_control_enabled"] is False
     assert all(slot.status()["status"] == "OFFLINE" for slot in broker.slots.values())
+
+
+def test_invalid_envelope_cannot_poison_next_packet():
+    slot = Broker(identities()).slots["TEST-001"]
+    decoder = mavlink.MAVLink(None)
+    good = frame(hb())
+    for malformed in (good[:10], good + good, b"x" + good):
+        assert slot.validate(malformed, decoder) is None
+        assert slot.validate(good, decoder) == (good, "HEARTBEAT")
+
+
+def test_viewer_capacity_is_released_after_disconnect(monkeypatch):
+    monkeypatch.setattr("vihanga_cloud.app.MAX_VIEWERS_PER_AIRCRAFT", 1)
+    broker = Broker(identities())
+    path = "/ws/v1/view/TEST-001"
+    headers = {"Authorization": "Bearer " + "V" * 40}
+    with TestClient(create_app(broker)) as client:
+        with client.websocket_connect(path, headers=headers):
+            with pytest.raises(WebSocketDisconnect):
+                with client.websocket_connect(path, headers=headers):
+                    pytest.fail("Unexpected second viewer")
+        with client.websocket_connect(path, headers=headers):
+            assert len(broker.slots["TEST-001"].viewers) == 1

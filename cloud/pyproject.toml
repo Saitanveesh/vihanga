@@ -7,7 +7,7 @@ name = "vihanga-cloud"
 version = "0.1.0"
 requires-python = ">=3.12"
 description = "Independent Vihanga telemetry relay with per-aircraft identity and no command plane"
-dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "pymavlink>=2.4.42,<3"]
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "websockets>=14,<17", "pymavlink>=2.4.42,<3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "httpx>=0.27,<1"]
