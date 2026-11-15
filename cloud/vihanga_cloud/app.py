@@ -218,6 +218,7 @@ def create_app(broker: Broker | None = None) -> FastAPI:
                     slot.epoch += 1
                     slot.last_heartbeat = slot.last_attitude = 0.0
                     for queue in tuple(slot.viewers):
+                        slot.viewer_frames_dropped += queue.qsize()
                         while not queue.empty():
                             queue.get_nowait()
 
@@ -232,13 +233,14 @@ def create_app(broker: Broker | None = None) -> FastAPI:
             return
         queue: asyncio.Queue = asyncio.Queue(maxsize=64)
         slot.viewers.add(queue)
+        close_code = 1000
         try:
             await ws.accept()
             while True:
                 wait_for_disconnect = asyncio.create_task(ws.receive())
                 wait_for_frame = asyncio.create_task(queue.get())
                 try:
-                    done, pending = await asyncio.wait(
+                    done, _ = await asyncio.wait(
                         {wait_for_disconnect, wait_for_frame}, timeout=1.0,
                         return_when=asyncio.FIRST_COMPLETED)
                 finally:
@@ -260,6 +262,7 @@ def create_app(broker: Broker | None = None) -> FastAPI:
                             await asyncio.wait_for(ws.send_bytes(packet), VIEWER_SEND_TIMEOUT_SECONDS)
                         except asyncio.TimeoutError:
                             slot.viewer_send_timeouts += 1
+                            close_code = 1013
                             break
                     else:
                         slot.viewer_frames_dropped += 1
@@ -267,8 +270,9 @@ def create_app(broker: Broker | None = None) -> FastAPI:
             pass
         finally:
             slot.viewers.discard(queue)
+            slot.viewer_frames_dropped += queue.qsize()
             try:
-                await asyncio.wait_for(ws.close(code=1000), VIEWER_SEND_TIMEOUT_SECONDS)
+                await asyncio.wait_for(ws.close(code=close_code), VIEWER_SEND_TIMEOUT_SECONDS)
             except (RuntimeError, OSError, asyncio.TimeoutError):
                 pass
 

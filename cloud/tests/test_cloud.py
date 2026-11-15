@@ -179,3 +179,80 @@ def test_viewer_capacity_is_released_after_disconnect(monkeypatch):
                     pytest.fail("Unexpected second viewer")
         with client.websocket_connect(path, headers=headers):
             assert len(broker.slots["TEST-001"].viewers) == 1
+
+
+def test_slow_viewer_overflow_timeout_and_task_cleanup(monkeypatch):
+    import asyncio
+
+    async def scenario():
+        monkeypatch.setattr("vihanga_cloud.app.VIEWER_SEND_TIMEOUT_SECONDS", 0.1)
+        monkeypatch.setattr("vihanga_cloud.app.MAX_VIEWERS_PER_AIRCRAFT", 1)
+        broker = Broker(identities())
+        slot = broker.slots["TEST-001"]
+        routes = {route.name: route.endpoint for route in create_app(broker).routes}
+
+        class Socket:
+            def __init__(self, headers):
+                self.headers = headers
+                self.inbox = asyncio.Queue()
+                self.accepted = asyncio.Event()
+                self.sending = asyncio.Event()
+                self.send_cancelled = False
+                self.receives = 0
+                self.closed = None
+
+            async def accept(self):
+                self.accepted.set()
+
+            async def receive(self):
+                self.receives += 1
+                try:
+                    return await self.inbox.get()
+                finally:
+                    self.receives -= 1
+
+            async def send_bytes(self, packet):
+                self.sending.set()
+                try:
+                    await asyncio.Future()
+                finally:
+                    self.send_cancelled = True
+
+            async def close(self, code):
+                self.closed = code
+
+        headers = {"authorization": "Bearer " + "V" * 40}
+        viewer = Socket(headers)
+        device = Socket({"x-vihanga-device-token": "D" * 40})
+        tasks = [asyncio.create_task(routes["viewer"](viewer, "TEST-001")),
+                 asyncio.create_task(routes["device"](device, "TEST-001"))]
+        try:
+            await asyncio.wait_for(viewer.accepted.wait(), 1)
+            await asyncio.wait_for(device.accepted.wait(), 1)
+            rejected = [Socket(headers) for _ in range(8)]
+            await asyncio.gather(*(routes["viewer"](s, "TEST-001") for s in rejected))
+            assert all(s.closed == 1013 and not s.accepted.is_set() for s in rejected)
+
+            packet = frame(hb())
+            device.inbox.put_nowait({"bytes": packet})
+            await asyncio.wait_for(viewer.sending.wait(), 1)
+            for _ in range(80):
+                device.inbox.put_nowait({"bytes": packet})
+            await asyncio.sleep(0)
+            assert slot.frames_received == 81
+            assert slot.viewer_frames_dropped == 16
+            await asyncio.wait_for(tasks[0], 1)
+            assert viewer.send_cancelled and viewer.closed == 1013
+            assert viewer.receives == 0 and not slot.viewers
+            assert slot.viewer_send_timeouts == 1
+            assert slot.viewer_frames_dropped == 80
+
+            device.inbox.put_nowait({"type": "websocket.disconnect"})
+            await asyncio.wait_for(tasks[1], 1)
+            assert slot.status()["status"] == "OFFLINE"
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    asyncio.run(scenario())
