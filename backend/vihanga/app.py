@@ -19,6 +19,7 @@ import sqlite3
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from vihanga.survey import router as survey_router
 from vihanga.telemetry import BrokerConnect, CloudConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -95,7 +96,10 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             revision_sha256 TEXT NOT NULL, created_at TEXT NOT NULL
         )""")
 
-    app = FastAPI(title="Vihanga standalone operations API", version="0.2.0")
+    app = FastAPI(title="Vihanga standalone operations API", version="0.13.0")
+    # Loopback-only development API. Reject DNS rebinding via arbitrary Host values.
+    app.add_middleware(TrustedHostMiddleware,
+                       allowed_hosts=["127.0.0.1", "localhost", "testserver"])
     links = LinkManager()
     app.state.links = links
     app.include_router(survey_router)
@@ -157,6 +161,18 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         require_vehicle(vehicle_id)
         await links.stop(vehicle_id)
         return links.snapshot(vehicle_id)
+
+    @app.get("/api/v1/fleet/telemetry")
+    async def fleet_telemetry():
+        """Consistent vehicle-scoped snapshots in one bounded request.
+
+        Avoid N independent per-aircraft HTTP polls for the operator fleet.
+        Read-only; no credentials or actuation capability is exposed.
+        """
+        with db() as con:
+            ids = [row["vehicle_id"] for row in
+                   con.execute("SELECT vehicle_id FROM vehicles ORDER BY vehicle_id").fetchall()]
+        return {vehicle_id: links.snapshot(vehicle_id) for vehicle_id in ids}
 
     @app.get("/api/v1/telemetry/{vehicle_id}")
     async def telemetry(vehicle_id: str):
