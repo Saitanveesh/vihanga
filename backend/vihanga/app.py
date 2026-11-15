@@ -279,6 +279,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 bench_enabled=os.environ.get("VIHANGA_BENCH_READ_REQUESTS") == "1",
                 local_serial=local,
                 connected=connected,
+                disarmed_verified=bool(connected and session.projector.snapshot()["heartbeat_fresh"]
+                                       and session.projector.snapshot()["armed"] is False),
             )
         }
 
