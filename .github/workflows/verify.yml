@@ -1,0 +1,60 @@
+name: Standalone Vihanga checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend and test tools
+        run: python -m pip install -e './backend[dev]'
+      - name: API regression and no-actuation tests
+        run: python -m pytest -q backend/tests
+      - name: Python compile
+        run: python -m compileall -q backend/vihanga
+
+  console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install console dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript and production bundle
+        run: npm run build
+
+  independence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify no Mission Planner dependency or extracted binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find . -type f \( -iname 'MissionPlanner.exe' -o -iname 'MissionPlanner.dll' -o -iname '*.sln' -o -iname '*.csproj' \) -print | grep -q .; then
+            echo 'FAIL: legacy Mission Planner binary or build project in standalone tree'
+            exit 1
+          fi
+          if grep -R -n -E 'MissionPlanner\.exe|AeroHelm\.Cloud\.Plugin\.Validation\.dll' backend console --exclude-dir=node_modules; then
+            echo 'FAIL: executable depends on the legacy ground station'
+            exit 1
+          fi
+          echo 'PASS: standalone code tree contains no Mission Planner runtime dependency'
