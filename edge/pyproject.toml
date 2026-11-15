@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = ["pyserial>=3.5,<4", "websockets>=14,<17", "pymavlink>=2.4.42,<3"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10"]
+dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
 
 [project.scripts]
 vihanga-edge = "vihanga_edge.agent:main"
