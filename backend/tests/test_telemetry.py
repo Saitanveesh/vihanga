@@ -87,4 +87,4 @@ def test_valid_vfr_hud_provides_airspeed_throttle_and_measured_rate():
     assert state["gps2_fix_type"] is None
     assert state["gps2_satellites"] is None
     assert state["battery_current_a"] is None
-    assert state["flight_control_enabled"] if "flight_control_enabled" in state else True
+    assert state["heartbeat_fresh"] is False
