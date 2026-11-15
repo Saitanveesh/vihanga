@@ -558,13 +558,6 @@ export default function App() {
             </div>
             <button type="button" className="major" disabled={busy || polygon.length < 3}
               onClick={() => void preview()}>{busy ? "Working…" : "Generate coverage route"}</button>
-            <div className="plan-stats">
-              <div><span>Boundary vertices</span><strong>{polygon.length}</strong></div>
-              <div><span>{pattern === "CIRCULAR" ? "Concentric rings" : "Flight lines"}</span><strong>{survey?.lane_count ?? "—"}</strong></div>
-              <div><span>Route waypoints</span><strong>{waypoints.length}</strong></div>
-              <div><span>Route distance</span><strong>{survey ? (survey.route_distance_m/1000).toFixed(2) + " km" : "—"}</strong></div>
-              <div><span>Travel time estimate</span><strong>{survey ? (survey.estimated_duration_s/60).toFixed(1) + " min" : "—"}</strong></div>
-            </div>
             {survey?.coverage_note && <div className="drawing-note">{survey.coverage_note}</div>}
             {waypoints.length > 0 && <div className="route-editor">
               <div className="route-editor-head">
@@ -592,6 +585,13 @@ export default function App() {
                 {waypoints.length > 100 && <p className="panel-footnote">Showing first 100 of {waypoints.length} route points</p>}
               </div>
             </div>}
+            <div className="plan-stats">
+              <div><span>Boundary vertices</span><strong>{polygon.length}</strong></div>
+              <div><span>{pattern === "CIRCULAR" ? "Concentric rings" : "Flight lines"}</span><strong>{survey?.lane_count ?? "—"}</strong></div>
+              <div><span>Route waypoints</span><strong>{waypoints.length}</strong></div>
+              <div><span>Route distance</span><strong>{survey ? (survey.route_distance_m/1000).toFixed(2) + " km" : "—"}</strong></div>
+              <div><span>Travel time estimate</span><strong>{survey ? (survey.estimated_duration_s/60).toFixed(1) + " min" : "—"}</strong></div>
+            </div>
             <div className="export-actions">
               <button type="button" onClick={exportDraftGeoJSON} disabled={waypoints.length < 2}>Export GeoJSON</button>
             </div>
