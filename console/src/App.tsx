@@ -477,7 +477,7 @@ export default function App() {
             <span className="rail-icon"><UiIcon name={item.icon} size={21}/></span><small>{item.label}</small>
           </button>)}
         </nav>
-        <div className="rail-foot">GCS / 0.18</div>
+        <div className="rail-foot">GCS / 0.19</div>
       </aside>
       {fleetOpen && <aside className="fleetbar">
         <div className="fleetbar-head"><span>AIRCRAFT</span><strong>{vehicles.length}</strong></div>
