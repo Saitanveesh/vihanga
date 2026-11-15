@@ -91,7 +91,7 @@ export default function GeoMap({
   const movingVertex = useRef<number | null>(null);
   callback.current = onMapClick;
   vertexCallback.current = onVertexMove;
-  data.current = collection(polygon, route, position, track);
+  data.current = buildGeometry(polygon, route, position, track);
   drawingRef.current = drawing;
 
   useEffect(() => {
