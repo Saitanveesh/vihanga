@@ -8,10 +8,10 @@ from pymavlink.dialects.v20 import ardupilotmega as mavlink
 from vihanga.telemetry import MAVLinkProjector, LinkManager, Session, UDPConnect, TCPConnect, validate_private_origin
 
 
-def frame(message, source_system=1):
+def frame(message, source_system=1, source_component=1):
     serializer = mavlink.MAVLink(BytesIO())
     serializer.srcSystem = source_system
-    serializer.srcComponent = 1
+    serializer.srcComponent = source_component
     return message.pack(serializer)
 
 
@@ -89,6 +89,24 @@ def test_valid_vfr_hud_provides_airspeed_throttle_and_measured_rate():
     assert state["battery_current_a"] is None
     assert state["heartbeat_fresh"] is False
 
+
+
+def test_radio_component_68_is_allowed_but_never_as_an_fc():
+    projector = MAVLinkProjector(1)
+    radio = mavlink.MAVLink_radio_status_message(
+        rxerrors=3, fixed=1, rssi=162, remrssi=121,
+        txbuf=71, noise=27, remnoise=20)
+    assert projector.push(frame(radio, source_component=68)) == 1
+    state = projector.snapshot()
+    assert state["radio_rssi_raw"] == 162
+    assert state["radio_rx_errors"] == 3
+    assert state["heartbeat_fresh"] is False
+
+    # Different aircraft SYSID and fake FC attitude from the radio itself
+    # remain rejected despite enabling the standard radio component.
+    assert projector.push(frame(radio, source_system=2, source_component=68)) == 0
+    assert projector.push(frame(attitude(), source_component=68)) == 0
+    assert projector.snapshot()["attitude_fresh"] is False
 
 
 def test_real_radio_and_sys_status_are_not_fabricated_when_missing():
