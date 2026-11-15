@@ -3,7 +3,7 @@
 
 Vihanga is an independent React/TypeScript operator console with Python geospatial planning, local MAVLink telemetry ingestion, a vehicle-isolated cloud telemetry broker and a Raspberry Pi edge receiver. It does **not** import, embed or depend on Mission Planner. Older Mission Planner-based work is retained separately for reference.
 
-**Engineering baseline: v0.17 (redundant receive-only telemetry and diagnostics), 15 November 2026.** The test suite exercises real MAVLink2 packet serialization and decoding, but there has been no demonstrated physical command downlink through this new stack. **Do not use this repository to conduct an aircraft flight.**
+**Engineering baseline: v0.18 (control workspace and gated USB bench reads), 15 November 2026.** The test suite exercises real MAVLink2 packet serialization and decoding, but there has been no demonstrated physical command downlink through this new stack. **Do not use this repository to conduct an aircraft flight.**
 
 ## Capability and verification matrix
 
@@ -20,6 +20,7 @@ Vihanga is an independent React/TypeScript operator console with Python geospati
 | Simulator command authority | Exclusive pilot lease, monotonic sequence, bounded deadlines, MAVLink COMMAND_LONG serialization, FC ACK + post-ACK observation lifecycle | Standalone unit tests only; **not exposed through API or edge** |
 | Simulator mission protocol | MISSION_ITEM_INT upload, request retries, FC acceptance and exact readback validation | Standalone protocol unit tests only; **no mission upload transport** |
 | Staging Docker | Private broker container with read-only filesystem and loopback-only host publish | Compose validation and container build in CI; no Oracle deployment |
+| Full GCS command workspace | Flight modes, mission, parameters, calibration, navigation and logs catalog; local opt-in non-actuating USB read queries | Command-changing functions locked; physical command path not implemented |
 | Physical flight-control | **Not implemented** | No Pi/Oracle/Pixhawk command acceptance |
 
 The cloud broker and Pi agent are **telemetry-only**. Their authenticated viewer connections cannot transmit commands to the aircraft. The isolated command and mission protocol libraries must not be interpreted as a flight-control feature.
@@ -97,4 +98,4 @@ GitHub Actions separately checks backend, cloud, edge, the cross-service packet 
 - Verify camera streaming under traffic load, GNSS validity, survey geometry, map license and operator workflow on the target Windows machine.
 - Before any physical control path: operator identity/MFA, short-lived pilot authority, vehicle-side safety arbiter, RC/manual precedence, link-loss policy, authenticated acknowledgements, HIL, propeller-free bench and supervised range acceptance.
 
-See [Operator acceptance](docs/OPERATOR_ACCEPTANCE.md), [Architecture](docs/ARCHITECTURE.md) and [Staging deployment](docs/STAGING_DEPLOYMENT.md). Never commit operational device tokens or operator credentials.
+See [Flight control engineering](docs/FLIGHT_CONTROL_ENGINEERING.md), [Operator acceptance](docs/OPERATOR_ACCEPTANCE.md), [Architecture](docs/ARCHITECTURE.md) and [Staging deployment](docs/STAGING_DEPLOYMENT.md). Never commit operational device tokens or operator credentials.
