@@ -81,7 +81,7 @@ export function validateConnection(input: ConnectionRequest): string | null {
       return "Use an HTTPS origin without a path, query, or embedded credentials.";
     }
     if (input.method === "LAN" &&
-        !/^https:\/\/(10\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):(?:876[5-9]|877[0-5])$/.test(input.origin.trim())) {
+        !/^https:\/\/(10\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):(?:876[5-9]|877[0-5])\/?$/.test(input.origin.trim())) {
       // The backend remains the final authority for RFC1918 and approved port validation.
       // This client hint is intentionally conservative and descriptive.
       return "Use the Pi's private IPv4 HTTPS address and its configured port (8765–8775).";
@@ -157,7 +157,7 @@ export default function ConnectionSettings({
   function receiverStatus(kind: "PRIMARY" | "BACKUP") {
     const status = kind === "PRIMARY" ? telemetry?.primary_status : telemetry?.backup_status;
     const transport = kind === "PRIMARY" ? telemetry?.primary_transport : telemetry?.backup_transport;
-    const selected = kind === "PRIMARY" ? selectedPrimary : !selectedPrimary;
+    const selected = Boolean(transport) && (kind === "PRIMARY" ? selectedPrimary : !selectedPrimary);
     return <div className={"connection-link-card " + (status === "LIVE" ? "live " : "") +
       (selected ? "is-selected" : "")}>
       <div className="connection-link-title">
