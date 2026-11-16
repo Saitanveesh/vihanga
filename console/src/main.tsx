@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles.css";
 import "./OperationsStyles.css";
 import "./ControlStyles.css";
+import "./ConnectionSettings.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode><App /></React.StrictMode>
