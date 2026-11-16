@@ -9,6 +9,7 @@ VIHANGA_OPERATOR_AUTH=required with a provisioned account for enforcement.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 from getpass import getpass
 from hashlib import scrypt, sha256
 import argparse
@@ -81,11 +82,16 @@ class OperatorStore:
                 ON operator_sessions(expires_at);
             """)
 
+    @contextmanager
     def _db(self):
         con = sqlite3.connect(self.path, timeout=5)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA foreign_keys=ON")
-        return con
+        try:
+            with con:
+                yield con
+        finally:
+            con.close()
 
     @staticmethod
     def _digest(password: str, salt: bytes) -> str:
@@ -233,6 +239,14 @@ class OperatorStore:
             raise AccessDenied("Aircraft access denied")
         if write and not principal.can_write():
             raise AccessDenied("Pilot or administrator role required")
+
+    def record_operation(self, principal: Principal, method: str,
+                         category: str, status: int, vehicle_id: str | None) -> None:
+        # Fixed category/method, no paths, secrets, IP or payloads in audit.
+        with self._db() as con:
+            self._audit(con, principal.username,
+                        "HTTP_" + method + "_" + category.upper(),
+                        "HTTP_" + str(status), vehicle_id)
 
     def audit_recent(self, maximum: int = 100) -> list[dict]:
         with self._db() as con:
