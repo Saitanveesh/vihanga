@@ -101,7 +101,7 @@ def install_operator_security(app: FastAPI, db_path: str | Path) -> OperatorStor
                 elif bits[2] == "links":
                     if bits[3] == "select" and len(bits) >= 5:
                         vehicle_id = bits[4]
-                    elif bits[3] == "backup" and len(bits) == 5:
+                    elif bits[3] == "backup" and len(bits) == 5 and request.method == "DELETE":
                         vehicle_id = bits[4]
                     elif len(bits) == 4 and request.method == "DELETE":
                         vehicle_id = bits[3]
