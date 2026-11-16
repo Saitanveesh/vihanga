@@ -17,6 +17,7 @@ import os
 import re
 import sqlite3
 from uuid import uuid4
+import time
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -274,8 +275,17 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             await socket.close(code=4403)
             return
         await socket.accept()
+        # Existing streams must lose access after logout and expiry too;
+        # handshake-only authorization is insufficient for live telemetry.
+        next_auth_check = 0.0
         try:
             while True:
+                now = time.monotonic()
+                if now >= next_auth_check:
+                    if not require_websocket(auth, socket, vehicle_id):
+                        await socket.close(code=4403)
+                        break
+                    next_auth_check = now + 1.0
                 await socket.send_json(links.snapshot(vehicle_id))
                 await asyncio.sleep(0.25)
         except (WebSocketDisconnect, RuntimeError, OSError):
