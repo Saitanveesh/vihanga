@@ -159,7 +159,7 @@ def install_operator_security(app: FastAPI, db_path: str | Path) -> OperatorStor
             CSRF_COOKIE, csrf, max_age=SESSION_SECONDS, httponly=False,
             samesite="strict", secure=False, path="/"
         )
-        return {"username": principal.username, "role": principal.role,
+        return {"authenticated": True, "username": principal.username, "role": principal.role,
                 "aircraft": principal.aircraft, "expires_at": principal.expiry,
                 "csrf_token": csrf, "flight_control_enabled": False}
 
