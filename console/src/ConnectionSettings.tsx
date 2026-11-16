@@ -81,7 +81,7 @@ export function validateConnection(input: ConnectionRequest): string | null {
       return "Use an HTTPS origin without a path, query, or embedded credentials.";
     }
     if (input.method === "LAN" &&
-        !/^https:\/\/(10\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):877?[0-9]$/.test(input.origin.trim())) {
+        !/^https:\/\/(10\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):(?:876[5-9]|877[0-5])$/.test(input.origin.trim())) {
       // The backend remains the final authority for RFC1918 and approved port validation.
       // This client hint is intentionally conservative and descriptive.
       return "Use the Pi's private IPv4 HTTPS address and its configured port (8765–8775).";
@@ -116,8 +116,8 @@ export default function ConnectionSettings({
   const [localError, setLocalError] = useState("");
   const closeRef = useRef<HTMLButtonElement>(null);
 
+  useEffect(() => { closeRef.current?.focus(); }, []);
   useEffect(() => {
-    closeRef.current?.focus();
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape" && !busy) onClose();
     }
