@@ -17,11 +17,13 @@ import os
 import re
 import sqlite3
 from uuid import uuid4
+import time
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from vihanga.survey import router as survey_router
 from vihanga.operator_contract import BenchQuery, catalog
+from vihanga.auth_api import install_operator_security, require_websocket, permitted_vehicle
 from vihanga.telemetry import BrokerConnect, CloudConnect, LanConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -97,12 +99,13 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             revision_sha256 TEXT NOT NULL, created_at TEXT NOT NULL
         )""")
 
-    app = FastAPI(title="Vihanga standalone operations API", version="0.19.0")
+    app = FastAPI(title="Vihanga standalone operations API", version="0.20.0")
     # Loopback-only development API. Reject DNS rebinding via arbitrary Host values.
     app.add_middleware(TrustedHostMiddleware,
                        allowed_hosts=["127.0.0.1", "localhost", "testserver"])
     links = LinkManager()
     app.state.links = links
+    auth = install_operator_security(app, path)
     app.include_router(survey_router)
 
     def require_vehicle(vehicle_id: str) -> None:
@@ -225,7 +228,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return links.snapshot(vehicle_id)
 
     @app.get("/api/v1/fleet/telemetry")
-    async def fleet_telemetry():
+    async def fleet_telemetry(request: Request):
         """Consistent vehicle-scoped snapshots in one bounded request.
 
         Avoid N independent per-aircraft HTTP polls for the operator fleet.
@@ -234,7 +237,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         with db() as con:
             ids = [row["vehicle_id"] for row in
                    con.execute("SELECT vehicle_id FROM vehicles ORDER BY vehicle_id").fetchall()]
-        return {vehicle_id: links.snapshot(vehicle_id) for vehicle_id in ids}
+        principal = getattr(request.state, "operator", None)
+        return {vehicle_id: links.snapshot(vehicle_id) for vehicle_id in ids
+                if permitted_vehicle(principal, vehicle_id)}
 
     @app.get("/api/v1/telemetry/{vehicle_id}")
     async def telemetry(vehicle_id: str):
@@ -266,9 +271,21 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         if not known:
             await socket.close(code=4404)
             return
+        if not require_websocket(auth, socket, vehicle_id):
+            await socket.close(code=4403)
+            return
         await socket.accept()
+        # Existing streams must lose access after logout and expiry too;
+        # handshake-only authorization is insufficient for live telemetry.
+        next_auth_check = 0.0
         try:
             while True:
+                now = time.monotonic()
+                if now >= next_auth_check:
+                    if not require_websocket(auth, socket, vehicle_id):
+                        await socket.close(code=4403)
+                        break
+                    next_auth_check = now + 1.0
                 await socket.send_json(links.snapshot(vehicle_id))
                 await asyncio.sleep(0.25)
         except (WebSocketDisconnect, RuntimeError, OSError):
@@ -353,12 +370,13 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         }
 
     @app.get("/api/v1/vehicles")
-    def vehicles():
+    def vehicles(request: Request):
+        principal = getattr(request.state, "operator", None)
         with db() as con:
             rows = con.execute("SELECT * FROM vehicles ORDER BY created_at, vehicle_id").fetchall()
             return [{**dict(row), "link_state": links.snapshot(row["vehicle_id"])["status"],
                      "control_authorized": False}
-                    for row in rows]
+                    for row in rows if permitted_vehicle(principal, row["vehicle_id"])]
 
     @app.post("/api/v1/vehicles", status_code=201)
     def register_vehicle(vehicle: VehicleCreate):
@@ -380,17 +398,22 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return mission
 
     @app.get("/api/v1/missions")
-    def missions():
+    def missions(request: Request):
+        principal = getattr(request.state, "operator", None)
         with db() as con:
             rows = con.execute("SELECT * FROM missions ORDER BY rowid DESC").fetchall()
-            return [mission_row(row) for row in rows]
+            return [mission_row(row) for row in rows
+                    if permitted_vehicle(principal, row["vehicle_id"])]
 
     @app.get("/api/v1/missions/{mission_id}")
-    def mission(mission_id: str):
+    def mission(mission_id: str, request: Request):
         with db() as con:
             row = con.execute("SELECT * FROM missions WHERE mission_id=?", (mission_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Mission draft not found")
+        principal = getattr(request.state, "operator", None)
+        if not permitted_vehicle(principal, row["vehicle_id"]):
+            raise HTTPException(status_code=403, detail="Aircraft access denied")
         return mission_row(row)
 
     @app.post("/api/v1/missions", status_code=201)

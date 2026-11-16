@@ -138,18 +138,45 @@ export interface SerialSettings {
   baud: number;
   fc_system_id: number;
 }
+let operatorCsrf = "";
+export const clearOperatorSession = () => { operatorCsrf = ""; };
+export interface AuthStatus {
+  mode: "LEGACY" | "REQUIRED";
+  provisioned: boolean;
+  flight_control_enabled: false;
+}
+export interface OperatorSession {
+  mode?: "LEGACY" | "REQUIRED";
+  authenticated?: boolean;
+  username?: string;
+  role?: "ADMIN" | "PILOT" | "VIEWER";
+  aircraft?: string[];
+  expires_at?: number;
+  csrf_token?: string | null;
+  flight_control_enabled?: false;
+}
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch("/api/v1/" + path, {
       ...init,
-      headers: { "Content-Type": "application/json", ...(init?.headers || {}) }
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.method && init.method !== "GET" && operatorCsrf
+          ? { "X-Vihanga-CSRF": operatorCsrf } : {}),
+        ...(init?.headers || {})
+      }
     });
   } catch {
     throw new Error("Vihanga API unavailable. Start the backend on 127.0.0.1:8010.");
   }
   const data: unknown = await response.json();
   if (!response.ok) {
+    if (response.status === 401 && path !== "auth/login") {
+      clearOperatorSession();
+      window.dispatchEvent(new Event("vihanga-operator-expired"));
+    }
     const failure = data as { detail?: unknown };
     throw new Error(typeof failure.detail === "string" ? failure.detail : "Request rejected (" + response.status + ")");
   }
@@ -158,6 +185,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const jsonPost = <T,>(path: string, value: unknown): Promise<T> => request<T>(path, {
   method: "POST", body: JSON.stringify(value)
 });
+export const getAuthStatus = () => request<AuthStatus>("auth/status");
+export const getOperatorSession = async () => {
+  const result = await request<OperatorSession>("auth/me");
+  operatorCsrf = result.csrf_token || "";
+  return result;
+};
+export const loginOperator = async (username: string, password: string) => {
+  const result = await jsonPost<OperatorSession>("auth/login", {username, password});
+  operatorCsrf = result.csrf_token || "";
+  return result;
+};
+export const logoutOperator = async () => {
+  await jsonPost<{logged_out: boolean}>("auth/logout", {});
+  clearOperatorSession();
+};
 export const getHealth = () => request<Health>("health");
 export const getVehicles = () => request<Vehicle[]>("vehicles");
 export const getMissions = () => request<Mission[]>("missions");

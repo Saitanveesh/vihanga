@@ -1,0 +1,38 @@
+.operator-login-page {
+  width:100%;height:100dvh;display:grid;place-items:center;
+  padding:20px;background:linear-gradient(135deg,#131e27,#1d2d39);
+  color:#e8f0f5;font-family:"Segoe UI",sans-serif
+}
+.operator-login-card {width:min(420px,100%);padding:30px 30px 25px;
+  background:#263541;border:1px solid #657885;border-radius:10px;
+  box-shadow:0 20px 60px #0007}
+.operator-login-brand {display:flex;align-items:center;gap:12px;
+  font-size:16px;font-weight:800;letter-spacing:1.2px}
+.operator-login-brand small {display:block;font-size:9px;
+  color:#a9c1cf;letter-spacing:1.4px;margin-top:5px}
+.operator-login-v {display:grid;place-items:center;width:42px;height:42px;
+  border:1px solid #88abbc;border-radius:8px;font-size:24px;color:#eff5f8}
+.operator-login-card h1{font-size:22px;margin:28px 0 10px;color:#f2f6f9}
+.operator-login-card p{font-size:12px;line-height:1.6;color:#bed0da}
+.operator-login-card form{margin-top:23px;display:flex;flex-direction:column;gap:9px}
+.operator-login-card label{font-size:11px;font-weight:700;color:#c3d5df}
+.operator-login-card input{width:100%;min-height:42px;padding:9px 12px;
+  border:1px solid #7790a0;border-radius:5px;background:#182631;color:#eef6fa;
+  margin-bottom:9px}
+.operator-login-card button{margin-top:9px;border:1px solid #72a9c5;
+  background:#327899;border-radius:5px;color:#fff;padding:12px;
+  font-size:12px;font-weight:750}
+.operator-login-card button:hover:not(:disabled){background:#4291b6}
+.operator-login-error{background:#43322f;border-left:3px solid #ed8b80;
+  padding:10px;color:#ffd6cf!important}
+.operator-login-card footer{font-size:10px;color:#9db6c4;line-height:1.5;
+  margin-top:24px;border-top:1px solid #4e6170;padding-top:13px}
+.operator-session-indicator{position:fixed;z-index:99;right:280px;top:7px;
+  display:flex;align-items:center;gap:6px;background:#1b303c;
+  padding:4px 6px 4px 10px;border:1px solid #5c7e90;border-radius:5px;
+  color:#d5eaf2;font:700 10px "Segoe UI",sans-serif}
+.operator-session-indicator button{background:#34586b;border:1px solid #678fa3;
+  border-radius:4px;color:#f1f7fa;font-size:10px;padding:5px 8px}
+@media(max-width:1100px){.operator-session-indicator{right:14px;top:64px}}
+@media(max-width:600px){.operator-login-card{padding:22px}
+  .operator-session-indicator{right:8px;top:55px;font-size:9px}}
