@@ -83,6 +83,8 @@ describe("ConnectionSettings", () => {
     expect(validateConnection({...defaultRequest,method:"LAN",
       origin:"https://192.168.137.176:8765",viewerToken:"L".repeat(40)})).toBe(null);
     expect(validateConnection({...defaultRequest,method:"LAN",
+      origin:"https://192.168.137.176:8765/",viewerToken:"L".repeat(40)})).toBe(null);
+    expect(validateConnection({...defaultRequest,method:"LAN",
       origin:"https://8.8.8.8:8765",viewerToken:"L".repeat(40)})).toMatch(/private IPv4/);
     expect(validateConnection({...defaultRequest,method:"LAN",
       origin:"http://192.168.1.5:8765",viewerToken:"L".repeat(40)})).toMatch(/HTTPS/);
