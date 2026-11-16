@@ -124,7 +124,16 @@ def install_operator_security(app: FastAPI, db_path: str | Path) -> OperatorStor
         except (ValueError, TypeError):
             return JSONResponse(status_code=400,
                                 content={"detail": "Malformed scoped request"})
-        return await call_next(request)
+        response = await call_next(request)
+        if is_write and path not in ("/api/v1/auth/logout",):
+            category = "RECEIVER" if path.startswith("/api/v1/links/") else (
+                "MISSION" if path.startswith("/api/v1/missions") else (
+                "FLEET" if path.startswith("/api/v1/vehicles") else (
+                "BENCH" if path.startswith("/api/v1/operator/") else "OTHER"
+            )))
+            store.record_operation(principal, request.method, category,
+                                   response.status_code, vehicle_id)
+        return response
 
     @app.get("/api/v1/auth/status")
     def auth_status():
