@@ -109,6 +109,28 @@ def test_radio_component_68_is_allowed_but_never_as_an_fc():
     assert projector.snapshot()["attitude_fresh"] is False
 
 
+def test_fc_rc_failsafe_remains_visible_until_explicit_recovery_report():
+    projector = MAVLinkProjector(1)
+    warning = mavlink.MAVLink_statustext_message(4, b"Radio Failsafe")
+    cleared = mavlink.MAVLink_statustext_message(6, b"Radio Failsafe Cleared")
+    assert projector.push(frame(warning)) == 1
+    assert projector.snapshot()["rc_input_status"] == "FAILSAFE"
+    assert projector.snapshot()["rc_failsafe_reported"] is True
+    # A continued PWM channel stream is not evidence the RF link recovered.
+    channels = mavlink.MAVLink_rc_channels_message(
+        100, 6, *([1500] * 6 + [65535] * 12 + [255])
+    )
+    assert projector.push(frame(channels)) == 1
+    assert projector.snapshot()["rc_input_status"] == "FAILSAFE"
+    assert projector.push(frame(cleared)) == 1
+    assert projector.snapshot()["rc_failsafe_reported"] is False
+    assert projector.snapshot()["rc_input_status"] == "CHANNELS_REPORTED"
+
+    foreign = MAVLinkProjector(1)
+    assert foreign.push(frame(warning, source_system=2)) == 0
+    assert foreign.snapshot()["rc_failsafe_reported"] is None
+
+
 def test_pixhawk_rc_channels_are_reported_separately_from_telemetry_radio():
     projector = MAVLinkProjector(1)
     sample = projector.snapshot()
