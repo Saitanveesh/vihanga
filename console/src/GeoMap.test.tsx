@@ -8,6 +8,8 @@ const stats = vi.hoisted(() => ({
   data: null as ReturnType<typeof buildGeometry> | null,
   click: null as (() => void) | null,
   drag: null as (() => void) | null, centers: [] as [number, number][],
+  pressVertex: null as ((event: object) => void) | null,
+  release: null as (() => void) | null,
   hit: undefined as number | undefined
 }));
 vi.mock("maplibre-gl", () => {
@@ -15,7 +17,12 @@ vi.mock("maplibre-gl", () => {
     source: { setData: (data: ReturnType<typeof buildGeometry>) => void } | null = null;
     dragPan = { disable: () => undefined, enable: () => undefined };
     addControl() {}
-    on(event: string, handler: () => void) {
+    on(event: string, handler: (() => void) | string, delegated?: (event: object) => void) {
+      if (typeof handler === "string") {
+        if (handler === "boundary-handles" && delegated) stats.pressVertex = delegated;
+        return;
+      }
+      if (event === "mouseup") stats.release = handler;
       if (event === "click") stats.click = handler;
       if (event === "dragstart") stats.drag = handler;
     }
@@ -29,7 +36,9 @@ vi.mock("maplibre-gl", () => {
     getLayer(id: string) { return stats.layers.has(id); }
     hasImage(id: string) { return stats.images.has(id); }
     addImage(id: string) { stats.images.add(id); }
-    queryRenderedFeatures() { return stats.hit ? [{ properties: { index: stats.hit } }] : []; }
+    project() { return { x: 43, y: 40 }; }
+    queryRenderedFeatures(box: number[][]) {
+      if (box[0][0] > 43 || box[1][0] < 43) return []; return stats.hit ? [{ properties: { index: stats.hit } }] : []; }
     resize() { stats.resizeCalls++; }
     remove() {}
     setStyle() { this.source = null; }
@@ -142,15 +151,27 @@ describe("geographic map visual geometry regression", () => {
     const view = render(<GeoMap {...props}/>);
     stats.hit = 2;
     const click = stats.click as unknown as (event: object) => void;
-    const point = { originalEvent: { defaultPrevented: false }, point: [40, 40],
+    const point = { originalEvent: { defaultPrevented: false }, point: { x: 40, y: 40 },
       lngLat: { lat: origin.latitude, lng: origin.longitude } };
     click(point);
     expect(props.onWaypointSelect).toHaveBeenCalledWith(1);
     expect(props.onMapClick).not.toHaveBeenCalled();
+    stats.hit = undefined;
+    click(point);
+    expect(props.onMapClick).toHaveBeenCalledWith(origin);
+    props.onMapClick.mockClear();
+    stats.hit = 2;
     view.rerender(<GeoMap {...props} selectedWaypoint={1} editingBoundary/>);
     click(point);
     expect(props.onMapClick).toHaveBeenCalledWith(origin);
     expect(stats.data?.features.find(f => f.properties.selected)?.properties.index).toBe(2);
+    props.onMapClick.mockClear();
+    stats.pressVertex?.({ features: [{ properties: { kind: "vertex", index: 1 } }], preventDefault() {} });
+    stats.release?.();
+    click(point);
+    expect(props.onMapClick).not.toHaveBeenCalled();
+    click(point);
+    expect(props.onMapClick).toHaveBeenCalledOnce();
   });
 
   it("follows fresh positions and reports a manual drag", () => {
