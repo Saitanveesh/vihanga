@@ -46,7 +46,10 @@ it("discards a circular result when the user clears its boundary while it is loa
   fireEvent.click(await screen.findByRole("button", { name: /^plan$/i }));
   expect(screen.queryByRole("img", { name: "VIHANGA" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Circular" }));
-  fireEvent.click(screen.getByRole("button", { name: "Draw boundary" }));
+  const survey = screen.getByRole("button", { name: "Survey" });
+  fireEvent.click(survey);
+  fireEvent.click(survey);
+  expect(survey.getAttribute("aria-pressed")).toBe("true");
   const map = await screen.findByRole("button", { name: "Map test target (0 points)" });
   for (let index = 0; index < 3; index++) fireEvent.click(map);
   fireEvent.click(screen.getByRole("button", { name: "Generate coverage route" }));
@@ -59,4 +62,13 @@ it("discards a circular result when the user clears its boundary while it is loa
   }));
   expect(screen.getByRole("button", { name: "Map test target (0 points)" })).toBeTruthy();
   expect(screen.queryByText("PREVIEW READY")).toBeNull();
+  const waypoints = screen.getByRole("button", { name: "Waypoints" });
+  fireEvent.click(waypoints);
+  fireEvent.click(waypoints);
+  fireEvent.click(map);
+  fireEvent.click(map);
+  expect(screen.getByRole("button", { name: "Map test target (2 points)" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+  fireEvent.click(map);
+  expect(screen.getByRole("button", { name: "Map test target (2 points)" })).toBeTruthy();
 });
