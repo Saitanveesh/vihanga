@@ -397,8 +397,7 @@ export default function ConnectionSettings({
             {localError || error}
           </p>}
         </form>
-        </>
-
+        </>}
 
       </div>
 
