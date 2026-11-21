@@ -35,16 +35,16 @@ it("discards a circular result when the user clears its boundary while it is loa
   vi.mocked(previewCircularSurvey).mockImplementation(() => new Promise(resolve => { resolvePreview = resolve; }));
 
   render(<StationAccess/>);
-  const splash = screen.getByRole("heading", { name: "VIHANGA" });
+  const splash = screen.getByRole("img", { name: "VIHANGA" });
   await act(async () => {});
-  expect(screen.getByRole("heading", { name: "VIHANGA" })).toBe(splash);
+  expect(screen.getByRole("img", { name: "VIHANGA" })).toBe(splash);
   expect(screen.queryByRole("navigation", { name: "Workspaces" })).toBeNull();
   await act(async () => resolveHealth({
     service: "vihanga-standalone", status: "ok", deployment: "LOCAL_STATION",
     physical_flight_control: false, live_vehicle_stream: false
   }));
   fireEvent.click(await screen.findByRole("button", { name: /^plan$/i }));
-  expect(screen.queryByRole("heading", { name: "VIHANGA" })).toBeNull();
+  expect(screen.queryByRole("img", { name: "VIHANGA" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Circular" }));
   fireEvent.click(screen.getByRole("button", { name: "Draw boundary" }));
   const map = await screen.findByRole("button", { name: "Map test target (0 points)" });

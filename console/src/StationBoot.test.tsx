@@ -32,26 +32,28 @@ const health = {
 };
 
 describe("station splash", () => {
-  it("displays only the wordmark and hands off automatically after the reveal", () => {
+  it("displays only the emblem and hands off automatically after the reveal", () => {
     vi.useFakeTimers();
     const cancel = vi.fn();
     const animate = vi.fn(() => ({ cancel }));
     Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
     const complete = vi.fn();
     const view = render(<BootSplash ready={false} onComplete={complete}/>);
-    expect(screen.getByRole("heading", { name: "VIHANGA" })).toBeTruthy();
-    expect(view.container.textContent).toBe("VIHANGA");
+    const emblem = screen.getByRole("img", { name: "VIHANGA" });
+    expect(emblem.getAttribute("src")).toBe("/vihanga-boot.svg");
+    expect(screen.getByRole("main").childElementCount).toBe(1);
+    expect(view.container.textContent).toBe("");
     expect(screen.queryByRole("button")).toBeNull();
-    expect(animate).toHaveBeenCalledTimes(3);
+    expect(animate).toHaveBeenCalledTimes(1);
     act(() => vi.advanceTimersByTime(2000));
     expect(complete).not.toHaveBeenCalled();
 
     view.rerender(<BootSplash ready onComplete={complete}/>);
-    expect(animate).toHaveBeenCalledTimes(5);
+    expect(animate).toHaveBeenCalledTimes(2);
     act(() => vi.advanceTimersByTime(400));
     expect(complete).toHaveBeenCalledOnce();
     view.unmount();
-    expect(cancel).toHaveBeenCalledTimes(5);
+    expect(cancel).toHaveBeenCalledTimes(2);
   });
 
   it("stops active animations and hands off immediately when motion is reduced", () => {
@@ -70,7 +72,7 @@ describe("station splash", () => {
     expect(complete).not.toHaveBeenCalled();
     preference.matches = true;
     act(() => change?.());
-    expect(cancel).toHaveBeenCalledTimes(3);
+    expect(cancel).toHaveBeenCalledTimes(1);
     expect(complete).toHaveBeenCalledOnce();
 
     view.unmount();
