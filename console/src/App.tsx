@@ -755,7 +755,6 @@ export default function App({ account, onInitialChecksComplete }: {
             <span className="rail-icon"><UiIcon name={item.icon} size={21}/></span><small>{item.label}</small>
           </button>)}
         </nav>
-        <div className="rail-foot">GCS</div>
       </aside>
       {fleetOpen && <aside className="fleetbar">
         <div className="fleetbar-head"><span>AIRCRAFT</span><strong>{vehicles.length}</strong></div>
@@ -789,7 +788,7 @@ export default function App({ account, onInitialChecksComplete }: {
       </aside>}
       <div className="main-area">
         <header className="toolbar">
-          <div className="toolbar-leading">
+          <div className="toolbar-leading" key={section}>
             <strong>{sectionTitles[section]}</strong>
             {active && <span className="toolbar-subtitle">{active.label}</span>}
           </div>
@@ -803,7 +802,7 @@ export default function App({ account, onInitialChecksComplete }: {
               aria-pressed={fleetOpen} onClick={() => setFleetOpen(v => !v)}>
               <UiIcon name="fleet" size={15}/> {fleetOpen ? "Hide aircraft" : "Aircraft"}
             </button>
-            <span className={"link-chip " + (current?.status === "LIVE" ? "ok" : "")}>
+            <span className={"link-chip " + (displaySample?.status === "LIVE" ? "ok" : "")}>
               <span className="chip-dot"/>{linkLabel(displaySample?.status)}
             </span>
             <span className="vehicle-chip">{active?.vehicle_id || "NO AIRCRAFT"}</span>
@@ -836,20 +835,22 @@ export default function App({ account, onInitialChecksComplete }: {
               fitLeftPadding={panelOpen && (section === "PLAN" || section === "HISTORY") ? 414 : 76}
               onMapClick={clicked} onVertexMove={moveVertex}/>
           </PanelLoader>
-          <div className="map-tools">
-            <button className={basemap === "satellite" ? "chosen" : ""} onClick={() => setBasemap("satellite")}>Satellite</button>
-            <button className={basemap === "streets" ? "chosen" : ""} onClick={() => setBasemap("streets")}>Streets</button>
-            <button className={basemap === "grid" ? "chosen" : ""} onClick={() => setBasemap("grid")}
-              title="Display geometry without online map tiles">Offline</button>
+          <div className="map-tools" role="group" aria-label="Map controls">
+            <select aria-label="Map layer" value={basemap}
+              onChange={event => setBasemap(event.target.value as Basemap)}>
+              <option value="satellite">Satellite</option>
+              <option value="streets">Streets</option>
+              <option value="grid">Offline grid</option>
+            </select>
             <button disabled={!location} title={!location ? "No fresh GPS fix" : "Center selected aircraft"}
               onClick={() => setCenterSignal(x => x + 1)}>Aircraft</button>
             {section === "FLIGHT" && <button type="button" className={followAircraft ? "chosen" : ""}
               aria-pressed={followAircraft} aria-label="Follow aircraft" disabled={!followAircraft && !location}
               title={!location ? "No fresh GPS fix" : "Keep the map centered on the aircraft"}
               onClick={() => setFollowedAircraftId(followAircraft ? "" : selected)}>Follow</button>}
-            <button disabled={waypoints.length === 0 && polygon.length === 0}
+            {(waypoints.length > 0 || polygon.length > 0) && <button type="button"
               title="Fit survey or route to map"
-              onClick={() => { stopFollowing(); setFitSignal(x => x + 1); }}>Fit route</button>
+              onClick={() => { stopFollowing(); setFitSignal(x => x + 1); }}>Fit route</button>}
           </div>
           {section === "PLAN" && <div className="operation-ribbon" role="toolbar" aria-label="Planning tools">
             <button className={section === "PLAN" && drawMode === "POLYGON" ? "active" : ""}

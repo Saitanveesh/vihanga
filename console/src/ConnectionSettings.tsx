@@ -173,7 +173,7 @@ export default function ConnectionSettings({
   const backupExists = Boolean(telemetry?.backup_transport);
   const alreadyConfigured = role === "PRIMARY" ? primaryExists : backupExists;
   const cannotAddBackup = role === "BACKUP" && !primaryExists;
-  const commonMethods: ConnectionMethod[] = ["CLOUD", "BROWSER_USB", "LAN"];
+  const commonMethods: ConnectionMethod[] = role === "BACKUP" ? ["BROWSER_USB", "LAN"] : ["CLOUD", "BROWSER_USB", "LAN"];
   const advancedMethods: ConnectionMethod[] = ["BROKER", "SERIAL", "UDP", "TCP"];
   const advancedSelected = advancedMethods.includes(method);
 
@@ -260,6 +260,7 @@ export default function ConnectionSettings({
               <button type="button" key={item} onClick={() => {
                 setRole(item); setLocalError(""); onClearError?.();
                 if (item === "PRIMARY" && method === "BROWSER_USB") chooseMethod("CLOUD");
+                if (item === "BACKUP" && method !== "BROWSER_USB" && method !== "LAN") chooseMethod("LAN");
               }} aria-pressed={role === item} className={role === item ? "active" : ""}>
                 {item === "PRIMARY" ? "Primary" : "Backup"}
               </button>
@@ -299,7 +300,7 @@ export default function ConnectionSettings({
                 <span><strong>{item.label}</strong></span>
               </button>)}
           </div>
-          <details className="connection-advanced-methods" open={advancedSelected ? true : undefined}>
+          {role === "PRIMARY" && <details className="connection-advanced-methods" open={advancedSelected ? true : undefined}>
             <summary>Advanced connections</summary>
             <div className="connection-settings-methods" role="group" aria-label="Advanced connection methods">
               {methods.filter(item => advancedMethods.includes(item.id)).map(item =>
@@ -310,7 +311,7 @@ export default function ConnectionSettings({
                   <span><strong>{item.label}</strong></span>
                 </button>)}
             </div>
-          </details>
+          </details>}
         </div>
 
         <form id="connection-settings-form" onSubmit={event => { void submit(event); }}
