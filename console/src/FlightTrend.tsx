@@ -18,7 +18,9 @@ export function useFlightTrend(telemetry?: Telemetry) {
       setTrend(previous => {
         const source = data?.transport ? (data.active_source ?? "PRIMARY") + "/" + data.transport : previous.source;
         const points = source === previous.source ? previous.points : [];
-        return { now, source, points: recordFlightPoint(points, data, now) };
+        const next = recordFlightPoint(points, data, now);
+        if (source === previous.source && next.length === 0 && previous.points.length === 0) return previous;
+        return { now, source, points: next };
       });
     }
     sample();

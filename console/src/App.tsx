@@ -1,15 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { MapPoint } from "./GeoMap";
+import PanelLoader from "./PanelLoader";
 import FlightInstruments from "./FlightInstruments";
-import Bench from "./Bench";
 import { currentTelemetry, finite } from "./flightHistory";
 import useDisplayTelemetry from "./useDisplayTelemetry";
-import OperationsPanel from "./OperationsPanel";
-import ControlPanel from "./ControlPanel";
 import NetworkWatch from "./NetworkWatch";
 import { useStationBoot, type BootData } from "./StationBoot";
 import { BrowserSerialReceiver } from "./BrowserSerial";
-import ConnectionSettings, { type ConnectionRequest, type ConnectionRole } from "./ConnectionSettings";
+import type { ConnectionRequest, ConnectionRole } from "./ConnectionSettings";
 import UiIcon, { type IconName } from "./UiIcon";
 import {
   connectBroker, connectCloud, connectLAN, connectUDP, connectTCP, connectSerial, disconnectLink,
@@ -25,6 +23,10 @@ import {
 type Section = "FLIGHT" | "CONTROL" | "PLAN" | "FLEET" | "LINK" | "BENCH" | "HISTORY" | "VIDEO";
 const loadGeoMap = () => import("./GeoMap");
 const GeoMap = lazy(loadGeoMap);
+const Bench = lazy(() => import("./Bench"));
+const ControlPanel = lazy(() => import("./ControlPanel"));
+const OperationsPanel = lazy(() => import("./OperationsPanel"));
+const ConnectionSettings = lazy(() => import("./ConnectionSettings"));
 const sectionTitles: Record<Section, string> = {
   FLIGHT: "Flight monitoring", CONTROL: "Aircraft controls", PLAN: "Mission planning",
   FLEET: "Aircraft directory", LINK: "Link health", BENCH: "Bench", HISTORY: "Mission drafts", VIDEO: "Live video"
@@ -36,6 +38,7 @@ type Basemap = "satellite" | "streets" | "grid";
 type DrawMode = "NONE" | "POLYGON" | "WAYPOINT";
 const EMPTY_POLYGON: MapPoint[] = [];
 const EMPTY_ROUTE: Waypoint[] = [];
+const EMPTY_TRACK: MapPoint[] = [];
 const sections: { label: Section; icon: IconName }[] = [
   { label: "FLIGHT", icon: "flight" }, { label: "CONTROL", icon: "shield" }, { label: "PLAN", icon: "plan" },
   { label: "FLEET", icon: "fleet" }, { label: "LINK", icon: "link" },
@@ -97,7 +100,7 @@ export default function App({ account, onInitialChecksComplete }: {
   const [selected, setSelected] = useState("");
   const [readings, setReadings] = useState<Record<string, Telemetry>>({});
   const viewerReceipt = useRef<{ id: string; at: number } | null>(null);
-  const [observedTrack, setObservedTrack] = useState<MapPoint[]>([]);
+  const [observedTrack, setObservedTrack] = useState(EMPTY_TRACK);
   const [liveTransportConnected, setLiveTransportConnected] = useState(false);
   const [alert, setAlert] = useState("");
   const [notice, setNotice] = useState("");
@@ -191,6 +194,7 @@ export default function App({ account, onInitialChecksComplete }: {
     }
   }
 
+  const fleetInterval = liveTransportConnected && !fleetOpen && section !== "FLEET" ? 5000 : 1600;
   useEffect(() => {
     if (vehicles.length === 0) { setReadings({}); return; }
     let mounted = true;
@@ -201,7 +205,7 @@ export default function App({ account, onInitialChecksComplete }: {
       setReadings(previous => viewerId && previous[viewerId] ? { ...next, [viewerId]: previous[viewerId] } : next);
     }
     async function poll() {
-      if (pending) return;
+      if (pending || document.hidden) return;
       const controller = new AbortController();
       pending = controller;
       const deadline = window.setTimeout(() => controller.abort(), 2800);
@@ -216,13 +220,15 @@ export default function App({ account, onInitialChecksComplete }: {
       }
     }
     void poll();
-    const handle = window.setInterval(() => void poll(), 1600);
+    const handle = window.setInterval(poll, fleetInterval);
+    document.addEventListener("visibilitychange", poll);
     return () => {
       mounted = false;
       pending?.abort();
       window.clearInterval(handle);
+      document.removeEventListener("visibilitychange", poll);
     };
-  }, [vehicles.length]);
+  }, [vehicles.length, fleetInterval]);
 
 
   // Low-latency local viewer; the backend streams only real FC-derived state.
@@ -287,30 +293,42 @@ export default function App({ account, onInitialChecksComplete }: {
     };
   }, [selected]);
 
+  const mapVisible = section !== "BENCH";
+  useEffect(() => setObservedTrack(EMPTY_TRACK), [selected]);
   useEffect(() => {
-    setObservedTrack([]);
-    if (!selected) return;
+    if (!selected || !mapVisible) return;
     let stopped = false;
     let pending: AbortController | null = null;
     async function refreshTrack() {
-      if (pending) return;
+      if (pending || document.hidden) return;
       const controller = new AbortController();
       pending = controller;
       const deadline = window.setTimeout(() => controller.abort(), 2500);
       try {
         const result = await getObservedTrack(selected, controller.signal);
-        if (!stopped) setObservedTrack(result.points);
+        if (!stopped) {
+          const points = result.points;
+          setObservedTrack(previous => previous.length === points.length && previous.every((point, index) =>
+            point.latitude === points[index].latitude && point.longitude === points[index].longitude)
+            ? previous : points);
+        }
       } catch {
-        if (!stopped) setObservedTrack([]);
+        if (!stopped) setObservedTrack(EMPTY_TRACK);
       } finally {
         window.clearTimeout(deadline);
         pending = null;
       }
     }
     void refreshTrack();
-    const timer = window.setInterval(() => void refreshTrack(), 2800);
-    return () => { stopped = true; pending?.abort(); window.clearInterval(timer); };
-  }, [selected]);
+    const timer = window.setInterval(refreshTrack, 2800);
+    document.addEventListener("visibilitychange", refreshTrack);
+    return () => {
+      stopped = true;
+      pending?.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshTrack);
+    };
+  }, [selected, mapVisible]);
 
   const active = vehicles.find(v => v.vehicle_id === selected);
   const primarySample = readings[selected];
@@ -332,8 +350,9 @@ export default function App({ account, onInitialChecksComplete }: {
   const activeTelemetry = useDisplayTelemetry(browserSerialSelected ? localBrowserSample ?? primarySample : primarySample);
   const displaySample = sample && activeTelemetry && activeTelemetry.status !== sample.status
     ? { ...sample, status: activeTelemetry.status, heartbeat_fresh: false, attitude_fresh: false } : sample;
+  const controlsVisible = panelOpen && section === "CONTROL";
   useEffect(() => {
-    if (!selected) {
+    if (!selected || !controlsVisible) {
       setOperatorCatalog(null);
       setParameterReadback(null);
       return;
@@ -343,16 +362,16 @@ export default function App({ account, onInitialChecksComplete }: {
       if (!cancelled) setOperatorCatalog(result);
     }).catch(() => { if (!cancelled) setOperatorCatalog(null); });
     return () => { cancelled = true; };
-  }, [selected, sample?.transport, sample?.status, sample?.active_source]);
+  }, [selected, controlsVisible, sample?.transport, sample?.status, sample?.active_source]);
   useEffect(() => {
     setParameterReadback(null);
-    if (!selected) return;
+    if (!selected || !controlsVisible) return;
     let cancelled = false;
     getParameterReadback(selected).then(result => {
       if (!cancelled) setParameterReadback(result);
     }).catch(() => { if (!cancelled) setParameterReadback(null); });
     return () => { cancelled = true; };
-  }, [selected, sample?.transport, sample?.active_source]);
+  }, [selected, controlsVisible, sample?.transport, sample?.active_source]);
   const cameraUrl = cameraPages[selected] ?? "";
   const current = currentTelemetry(displaySample);
   const latitude = finite(current?.latitude);
@@ -801,20 +820,22 @@ export default function App({ account, onInitialChecksComplete }: {
             </button>
           </div>
         </header>
-        {section === "BENCH" && <Bench key={selected} aircraftId={selected} telemetry={primarySample}
-          browserTelemetry={localBrowserSample} activeBrowser={browserSerialSelected} readOnly={account?.role === "viewer"}/>}
+        {section === "BENCH" && <PanelLoader name="bench">
+          <Bench key={selected} aircraftId={selected} telemetry={primarySample}
+            browserTelemetry={localBrowserSample} activeBrowser={browserSerialSelected} readOnly={account?.role === "viewer"}/>
+        </PanelLoader>}
         <div hidden={section === "BENCH"}
           className={"map-stage " + ((section === "FLIGHT" || section === "PLAN") ? "has-operations" : "")}>
-          <Suspense fallback={<div className="station-map-error" role="status">Loading map</div>}>
+          <PanelLoader name="map" floating>
             <GeoMap polygon={section === "PLAN" ? polygon : EMPTY_POLYGON} route={section === "PLAN" || section === "HISTORY" || section === "FLIGHT" ? waypoints : EMPTY_ROUTE}
-              track={observedTrack} position={location} drawing={section === "PLAN" && drawMode !== "NONE"}
+              track={mapVisible ? observedTrack : EMPTY_TRACK} position={mapVisible ? location : null} drawing={section === "PLAN" && drawMode !== "NONE"}
               editingBoundary={section === "PLAN" && drawMode === "POLYGON"}
               basemap={basemap} centerSignal={centerSignal} fitSignal={fitSignal}
               follow={section === "FLIGHT" && followAircraft} onFollowInterrupted={stopFollowing}
               selectedWaypoint={selectedWaypoint} onWaypointSelect={setSelectedWaypoint}
               fitLeftPadding={panelOpen && (section === "PLAN" || section === "HISTORY") ? 414 : 76}
               onMapClick={clicked} onVertexMove={moveVertex}/>
-          </Suspense>
+          </PanelLoader>
           <div className="map-tools">
             <button className={basemap === "satellite" ? "chosen" : ""} onClick={() => setBasemap("satellite")}>Satellite</button>
             <button className={basemap === "streets" ? "chosen" : ""} onClick={() => setBasemap("streets")}>Streets</button>
@@ -848,13 +869,15 @@ export default function App({ account, onInitialChecksComplete }: {
             {section === "PLAN" && waypoints.length > 0 &&
               <span className="route-count">{waypoints.length} waypoint{waypoints.length === 1 ? "" : "s"}</span>}
           </div>}
-          {panelOpen && section === "CONTROL" && <ControlPanel
-             aircraftId={selected} catalog={operatorCatalog} telemetry={sample}
-             readback={parameterReadback} busy={busy}
-             onClose={() => setPanelOpen(false)}
-             onBenchQuery={(query, parameter) => { void requestBenchRead(query, parameter); }}
-             onRefreshReadback={() => { void refreshParameters(); }}
-           />}
+          {panelOpen && section === "CONTROL" && <PanelLoader name="controls" floating>
+            <ControlPanel
+              aircraftId={selected} catalog={operatorCatalog} telemetry={sample}
+              readback={parameterReadback} busy={busy}
+              onClose={() => setPanelOpen(false)}
+              onBenchQuery={(query, parameter) => { void requestBenchRead(query, parameter); }}
+              onRefreshReadback={() => { void refreshParameters(); }}
+            />
+          </PanelLoader>}
           {panelOpen && section === "PLAN" && <section id="operator-panel" className="float-panel plan-panel">
             <div className="panel-title">
               <h2>Survey planner</h2>
@@ -1083,13 +1106,15 @@ export default function App({ account, onInitialChecksComplete }: {
             </button>
           </div>}
           <NetworkWatch aircraftId={selected} telemetry={sample} viewerConnected={liveTransportConnected}/>
-          {diagnosticsOpen && <OperationsPanel
-            aircraftId={selected} telemetry={sample} busy={busy}
-            onClose={() => setDiagnosticsOpen(false)}
-            onConfigureBackup={() => openConnection("BACKUP")}
-            onSelect={role => { void chooseSource(role); }}
-            onRemoveBackup={() => { void stopBackupLink(); }}
-          />}
+          {diagnosticsOpen && <PanelLoader name="diagnostics" floating>
+            <OperationsPanel
+              aircraftId={selected} telemetry={sample} busy={busy}
+              onClose={() => setDiagnosticsOpen(false)}
+              onConfigureBackup={() => openConnection("BACKUP")}
+              onSelect={role => { void chooseSource(role); }}
+              onRemoveBackup={() => { void stopBackupLink(); }}
+            />
+          </PanelLoader>}
           {(location || observedTrack.length > 0 || waypoints.length > 0 || basemap === "grid") &&
             <div className="map-coordinates">
               {location && <span>{location.latitude.toFixed(5)}°, {location.longitude.toFixed(5)}°</span>}
@@ -1116,23 +1141,25 @@ export default function App({ account, onInitialChecksComplete }: {
           <span className="station-authority">TELEMETRY ONLY</span>
         </footer>
       </div>
-      {connectOpen && <ConnectionSettings
-        aircraftName={active?.label || "Aircraft"}
-        aircraftId={selected}
-        telemetry={sample}
-        initialRole={connectionRole}
-        busy={busy}
-        error={connectionError}
-        onConnect={startLink}
-        onConnectBrowserSerial={connectBrowserRadio}
-        onActivate={chooseSource}
-        onRemoveBackup={stopBackupLink}
-        onDisconnect={stopLink}
-        onClearError={() => setConnectionError("")}
-        onClose={() => {
+      {connectOpen && <PanelLoader name="connections">
+        <ConnectionSettings
+          aircraftName={active?.label || "Aircraft"}
+          aircraftId={selected}
+          telemetry={sample}
+          initialRole={connectionRole}
+          busy={busy}
+          error={connectionError}
+          onConnect={startLink}
+          onConnectBrowserSerial={connectBrowserRadio}
+          onActivate={chooseSource}
+          onRemoveBackup={stopBackupLink}
+          onDisconnect={stopLink}
+          onClearError={() => setConnectionError("")}
+          onClose={() => {
           if (!busy) { setConnectOpen(false); setConnectionError(""); }
-        }}
-      />}
+          }}
+        />
+      </PanelLoader>}
     </div>
   );
 }

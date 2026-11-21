@@ -22,6 +22,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from vihanga.bench import BenchRecorder, CaptureBusy
 from vihanga.station_auth import COOKIE, LOCAL_BROWSER_ORIGINS, StationAccess, can_see
@@ -29,6 +30,16 @@ from vihanga.survey import router as survey_router
 from vihanga.operator_contract import BenchQuery, catalog
 from vihanga.telemetry import BrokerConnect, CloudConnect, LanConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class ConsoleAssets(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code in (200, 206, 304) and re.fullmatch(
+            r"[^/]+-[A-Za-z0-9_-]{8,}\.(?:m?js|css)", path
+        ):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 def now_utc() -> str:
@@ -132,7 +143,9 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
         def operator_mark():
             return FileResponse(dist / "vihanga-mark.svg", media_type="image/svg+xml")
 
-        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="operator-assets")
+        assets = ConsoleAssets(directory=dist / "assets")
+        app.mount("/assets", GZipMiddleware(assets, minimum_size=1024, compresslevel=4),
+                  name="operator-assets")
 
     def require_vehicle(vehicle_id: str) -> None:
         if not can_see(vehicle_id):

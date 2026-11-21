@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -135,7 +135,9 @@ export default function GeoMap({
   const followInterrupt = useRef(onFollowInterrupted);
   const geometryRef = useRef({polygon,route});
   geometryRef.current = {polygon,route};
-  const data = useRef(buildGeometry(polygon, route, position, track, selectedWaypoint));
+  const geometry = useMemo(() => buildGeometry(polygon, route, position, track, selectedWaypoint),
+    [polygon, route, position, track, selectedWaypoint]);
+  const data = useRef(geometry);
   const drawingRef = useRef(drawing);
   const editBoundaryRef = useRef(editingBoundary);
   const movingVertex = useRef<number | null>(null);
@@ -143,7 +145,7 @@ export default function GeoMap({
   vertexCallback.current = onVertexMove;
   waypointCallback.current = onWaypointSelect;
   followInterrupt.current = onFollowInterrupted;
-  data.current = buildGeometry(polygon, route, position, track, selectedWaypoint);
+  data.current = geometry;
   drawingRef.current = drawing;
   editBoundaryRef.current = editingBoundary;
 
@@ -291,9 +293,9 @@ export default function GeoMap({
     const source = map?.getSource("vihanga-geometry") as GeoJSONSource | undefined;
     if (map && source) {
       installWaypointBadges(map, route.length);
-      source.setData(data.current);
+      source.setData(geometry);
     }
-  }, [polygon, route, position, track, selectedWaypoint]);
+  }, [geometry, route.length]);
 
   useEffect(() => {
     const map = mapRef.current;

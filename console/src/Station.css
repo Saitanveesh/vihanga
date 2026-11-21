@@ -84,6 +84,7 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
   pointer-events: none;
 }
 .station-instrument-area { flex: 0 0 auto; }
+.station-panel-loading { margin: 12px; padding: 10px; color: var(--station-muted); font-size: 12px; }
 
 .station-statusbar {
   display: flex;

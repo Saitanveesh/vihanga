@@ -32,6 +32,30 @@ def test_station_serves_build_and_preserves_api_routes(tmp_path: Path):
         assert client.get("/", headers={"Host": "outside.example"}).status_code == 400
 
 
+def test_static_console_compresses_and_caches_only_versioned_assets(tmp_path: Path):
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    text = "console.log('station');\n" * 100
+    (dist / "index.html").write_text(text, encoding="utf-8")
+    (dist / "assets" / "index-a1B2_cD3.js").write_text(text, encoding="utf-8")
+    (dist / "assets" / "plain.js").write_text(text, encoding="utf-8")
+
+    with TestClient(create_app(tmp_path / "gcs.sqlite3", console_dist=dist)) as client:
+        headers = {"Accept-Encoding": "gzip"}
+        path = "/assets/index-a1B2_cD3.js"
+        asset = client.get(path, headers=headers)
+        assert asset.status_code == 200 and asset.text == text
+        assert asset.headers["content-encoding"] == "gzip"
+        assert "Accept-Encoding" in asset.headers["vary"]
+        assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"
+        identity = client.get(path, headers={"Accept-Encoding": "identity"})
+        assert "content-encoding" not in identity.headers and identity.text == text
+        assert "cache-control" not in client.get("/assets/plain.js").headers
+        index = client.get("/", headers=headers)
+        assert index.headers["cache-control"] == "no-store"
+        assert "content-encoding" not in index.headers
+
+
 def test_explicit_bundle_requires_built_assets(tmp_path: Path):
     with pytest.raises(RuntimeError, match="console bundle is missing"):
         create_app(tmp_path / "gcs.sqlite3", console_dist=tmp_path / "empty")
