@@ -46,6 +46,11 @@
 .bench-receiver p { color: var(--station-muted); font-size: 12px; }
 .bench-receiver p b { margin-inline-start: 8px; color: var(--station-accent); font-weight: 600; }
 .bench-receiver dl { display: grid; gap: 6px; margin: 11px 0 1px; padding-top: 8px; border-top: 1px solid var(--station-line); }
+.bench-path { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--station-line); }
+.bench-path p { color: var(--station-accent); font-size: 12px; }
+.bench-path dl { display: grid; gap: 4px; margin: 6px 0; }
+.bench-path dl div { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; }
+.bench-path dd { margin: 0; }
 .bench-receiver dt { font-size: 12px; color: var(--station-muted); }
 .bench-receiver dd { margin: 0; font: 12px var(--station-mono); }
 .bench-receiver .bench-error-code, .bench-workspace .bench-error { color: var(--station-fault); font-size: 12px; }

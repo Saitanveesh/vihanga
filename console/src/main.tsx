@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import StationAccess from "./StationAccess";
 import "./styles.css";
 import "./OperationsStyles.css";
 import "./ControlStyles.css";
@@ -11,5 +11,5 @@ import "./ObsidianTheme.css";
 import "./Station.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode><App /></React.StrictMode>
+  <React.StrictMode><StationAccess /></React.StrictMode>
 );

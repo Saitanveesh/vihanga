@@ -23,10 +23,12 @@ os.environ["VIHANGA_CLOUD_AIRCRAFT_JSON"] = json.dumps([
      "viewer_token_sha256": sha256(("W" * 40).encode()).hexdigest()},
 ])
 
-from vihanga_cloud.app import AircraftIdentity, Broker, create_app as create_cloud, digest
-from vihanga_edge.agent import FrameGate
+from vihanga_cloud.app import AircraftIdentity, Broker, DIAGNOSTICS_PROTOCOL, create_app as create_cloud, digest
+from vihanga_edge.agent import CloudUplink, FrameGate
 from vihanga.app import create_app as create_gcs
 from vihanga.telemetry import MAVLinkProjector, Session
+from vihanga.link_evidence import UpstreamEvidence
+import time
 
 
 def frame(message, sysid=1):
@@ -59,6 +61,39 @@ def position():
 def gps(fix=3):
     return mavlink.MAVLink_gps_raw_int_message(
         1234, fix, 129710000, 775900000, 40000, 70, 70, 0, 0, 10)
+
+
+def test_edge_broker_and_station_evidence_is_independent():
+    uplink = CloudUplink()
+    gate = FrameGate(1)
+    broker = Broker(identities())
+    session = Session("TEST-001", "VIHANGA_CLOUD_V2", MAVLinkProjector(1), state="CONNECTED")
+    headers = {"Authorization": "Bearer " + "V" * 40}
+    with TestClient(create_cloud(broker)) as web:
+        with web.websocket_connect("/ws/v1/view/TEST-001", headers=headers) as viewer:
+            with web.websocket_connect("/ws/v1/device/TEST-001", subprotocols=[DIAGNOSTICS_PROTOCOL],
+                    headers={"X-Vihanga-Device-Token": "D" * 40}) as device:
+                uplink.uart_open = True
+                device.send_text(uplink.diagnostic_report())
+                for packet in gate.consume(frame(heartbeat()) + frame(attitude())):
+                    uplink.uart_bytes += len(packet)
+                    uplink.uart_accepted += 1
+                    uplink.last_uart = time.monotonic()
+                    uplink.sent += 1
+                    device.send_bytes(packet)
+                    session.projector.push(viewer.receive_bytes())
+                device.send_text(uplink.diagnostic_report())
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    evidence = web.get("/api/v1/diagnostics/TEST-001", headers=headers).json()
+                    if evidence["edge"] and evidence["edge"]["uart_accepted"] == 2:
+                        break
+                assert evidence["edge"]["uart_accepted"] == evidence["relay"]["received"] == 2
+                assert evidence["relay"]["viewer_dropped"] == 0
+                session.upstream = (UpstreamEvidence.model_validate(evidence), time.monotonic())
+                assert session.snapshot()["path_evidence"]["diagnosis"] == "THREE_LEGS_OBSERVED"
+                session.projector = MAVLinkProjector(1)
+                assert session.snapshot()["path_evidence"]["diagnosis"] == "RELAY_TO_STATION_STALE"
 
 
 def test_rc_receiver_input_survives_edge_cloud_projector_without_fake_standby():

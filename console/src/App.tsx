@@ -85,7 +85,9 @@ const initialVehicle: VehicleCreate = {
   vehicle_id: "", label: "", autopilot: "ARDUPILOT", interface: "UART"
 };
 
-export default function App() {
+export default function App({ account }: {
+  account?: { name: string; role: "admin" | "operator" | "viewer"; signOut: () => void };
+} = {}) {
   const [section, setSection] = useState<Section>("FLIGHT");
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
@@ -517,6 +519,7 @@ export default function App() {
     } catch (e) { fail(e); } finally { setBusy(false); }
   }
   function openConnection(role?: ConnectionRole) {
+    if (account?.role === "viewer") return;
     const requested = role ?? "PRIMARY";
     setConnectionRole(requested);
     setConnectionError("");
@@ -611,6 +614,7 @@ export default function App() {
     }
   }
   async function chooseSource(role: "PRIMARY" | "BACKUP") {
+    if (account?.role === "viewer") return;
     if (!selected) return;
     if (browserSerialAircraft === selected && browserSerialSample) {
       if (role === "BACKUP" && browserSerialSample.status !== "LIVE") {
@@ -734,6 +738,8 @@ export default function App() {
             {active && <span className="toolbar-subtitle">{active.label}</span>}
           </div>
           <div className="toolbar-right">
+            {account && <button type="button" className="toolbar-button" title={account.name + " · " + account.role}
+              onClick={account.signOut}>Sign out</button>}
             {!boot.ready && <button type="button" className="toolbar-button" disabled={!boot.finished}
               onClick={boot.retry}>{boot.finished ? "Retry startup checks" : "Checking station"}</button>}
             <button type="button" className="toolbar-button fleet-toggle"
@@ -753,13 +759,13 @@ export default function App() {
               <UiIcon name="activity" size={16}/> Diagnostics
             </button>
             <button className="toolbar-button accent" onClick={() => openConnection()}
-              disabled={!selected} title="Configure primary or backup telemetry receiver">
+              disabled={!selected || account?.role === "viewer"} title="Configure primary or backup telemetry receiver">
               <UiIcon name="radio" size={15}/> Connections
             </button>
           </div>
         </header>
         {section === "BENCH" && <Bench key={selected} aircraftId={selected} telemetry={primarySample}
-          browserTelemetry={localBrowserSample} activeBrowser={browserSerialSelected}/>}
+          browserTelemetry={localBrowserSample} activeBrowser={browserSerialSelected} readOnly={account?.role === "viewer"}/>}
         <div hidden={section === "BENCH"}
           className={"map-stage " + ((section === "FLIGHT" || section === "PLAN") ? "has-operations" : "")}>
           <Suspense fallback={<div className="station-map-error" role="status">Loading map</div>}>

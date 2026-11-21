@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import fcntl
 from ipaddress import ip_address
 import time
+import json
 import logging
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ from websockets.asyncio.client import connect
 from vihanga_edge.lan import LanFanout
 
 LOG = logging.getLogger("vihanga.edge")
+DIAGNOSTICS_PROTOCOL = "vihanga-diagnostics.v1"
 VALID_MESSAGES = frozenset({
     "HEARTBEAT", "ATTITUDE", "GPS_RAW_INT", "GPS2_RAW", "GLOBAL_POSITION_INT",
     "SYS_STATUS", "BATTERY_STATUS", "VFR_HUD", "STATUSTEXT", "HOME_POSITION",
@@ -145,6 +147,18 @@ class CloudUplink:
         self.queue: asyncio.Queue = asyncio.Queue(maxsize=256)
         self.websocket = None
         self.dropped = 0
+        self.sent = 0
+        self.uart_open = False
+        self.uart_bytes = self.uart_accepted = self.uart_rejected = 0
+        self.last_uart: float | None = None
+
+    def diagnostic_report(self) -> str:
+        return json.dumps({
+            "version": 1, "uart_open": self.uart_open, "uart_bytes": self.uart_bytes,
+            "uart_accepted": self.uart_accepted, "uart_rejected": self.uart_rejected,
+            "uart_age_ms": round((time.monotonic() - self.last_uart) * 1000) if self.last_uart is not None else None,
+            "uplink_sent": self.sent, "uplink_dropped": self.dropped,
+        }, separators=(",", ":"))
 
     def offer(self, packet: bytes) -> None:
         if self.queue.full():
@@ -171,6 +185,7 @@ class CloudUplink:
             try:
                 async with connect(
                     settings.cloud_wss,
+                    subprotocols=[DIAGNOSTICS_PROTOCOL],
                     additional_headers={"X-Vihanga-Device-Token": settings.token},
                     open_timeout=10, close_timeout=3, ping_interval=15,
                     max_size=1024, max_queue=8
@@ -179,12 +194,22 @@ class CloudUplink:
                     failures = 0
                     self.clear()
                     LOG.info("Cloud telemetry connected for %s", settings.vehicle_id)
+                    diagnostics = websocket.subprotocol == DIAGNOSTICS_PROTOCOL
+                    next_report = time.monotonic()
                     while True:
-                        queued_at, packet = await self.queue.get()
+                        if diagnostics and time.monotonic() >= next_report:
+                            await asyncio.wait_for(websocket.send(self.diagnostic_report()), timeout=3)
+                            next_report = time.monotonic() + 2
+                        try:
+                            queued_at, packet = await asyncio.wait_for(
+                                self.queue.get(), max(0, next_report - time.monotonic()) if diagnostics else None)
+                        except TimeoutError:
+                            continue
                         if time.monotonic() - queued_at > 1.5:
                             self.dropped += 1
                             continue
                         await asyncio.wait_for(websocket.send(packet), timeout=3)
+                        self.sent += 1
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -204,19 +229,30 @@ async def read_uart(settings: Settings, uplink: CloudUplink,
         try:
             gate = FrameGate(settings.system_id)
             with serial.Serial(settings.port, settings.baud, timeout=0.2) as fc:
+                uplink.uart_open = True
+                uplink.last_uart = None
                 failures = 0
                 LOG.info("Vihanga UART reader active for %s", settings.vehicle_id)
                 while True:
                     chunk = await asyncio.to_thread(fc.read, 512)
                     if not chunk:
                         continue
-                    for packet in gate.consume(bytes(chunk)):
+                    uplink.uart_bytes += len(chunk)
+                    rejected = gate.rejected
+                    packets = gate.consume(bytes(chunk))
+                    uplink.uart_rejected += gate.rejected - rejected
+                    uplink.uart_accepted += len(packets)
+                    if packets:
+                        uplink.last_uart = time.monotonic()
+                    for packet in packets:
                         uplink.offer(packet)
                         if lan is not None:
                             lan.publish(packet)
         except asyncio.CancelledError:
+            uplink.uart_open = False
             raise
         except Exception:
+            uplink.uart_open = False
             failures += 1
             LOG.warning("Edge UART read failed; reopening attempt %d", failures)
             # A dead UART must close both remote sessions so that consumers

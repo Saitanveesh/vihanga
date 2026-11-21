@@ -24,15 +24,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from vihanga.bench import BenchRecorder, CaptureBusy
+from vihanga.station_auth import COOKIE, LOCAL_BROWSER_ORIGINS, StationAccess, can_see
 from vihanga.survey import router as survey_router
 from vihanga.operator_contract import BenchQuery, catalog
 from vihanga.telemetry import BrokerConnect, CloudConnect, LanConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-LOCAL_BROWSER_ORIGINS = {
-    "http://127.0.0.1:5173", "http://localhost:5173",
-    "http://127.0.0.1:8010", "http://localhost:8010",
-}
 
 
 def now_utc() -> str:
@@ -114,6 +110,9 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
     # Loopback-only development API. Reject DNS rebinding via arbitrary Host values.
     app.add_middleware(TrustedHostMiddleware,
                        allowed_hosts=["127.0.0.1", "localhost", "testserver"])
+    access = StationAccess()
+    app.state.access = access
+    access.install(app)
     links = LinkManager()
     app.state.links = links
     bench = BenchRecorder(db, links.snapshot)
@@ -136,6 +135,8 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
         app.mount("/assets", StaticFiles(directory=dist / "assets"), name="operator-assets")
 
     def require_vehicle(vehicle_id: str) -> None:
+        if not can_see(vehicle_id):
+            raise HTTPException(status_code=404, detail="Aircraft not registered")
         with db() as con:
             exists = con.execute("SELECT 1 FROM vehicles WHERE vehicle_id=?", (vehicle_id,)).fetchone()
         if exists is None:
@@ -293,7 +294,7 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
         with db() as con:
             ids = [row["vehicle_id"] for row in
                    con.execute("SELECT vehicle_id FROM vehicles ORDER BY vehicle_id").fetchall()]
-        return {vehicle_id: links.snapshot(vehicle_id) for vehicle_id in ids}
+        return {vehicle_id: links.snapshot(vehicle_id) for vehicle_id in ids if can_see(vehicle_id)}
 
     @app.get("/api/v1/telemetry/{vehicle_id}")
     async def telemetry(vehicle_id: str):
@@ -317,6 +318,12 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
         if origin is not None and origin not in LOCAL_BROWSER_ORIGINS:
             await socket.close(code=1008)
             return
+        token = socket.cookies.get(COOKIE, "")
+        if access.enabled:
+            account = access.identify(token)
+            if account is None or not account.permits(vehicle_id):
+                await socket.close(code=1008)
+                return
         with db() as con:
             known = con.execute("SELECT 1 FROM vehicles WHERE vehicle_id=?", (vehicle_id,)).fetchone()
         if not known:
@@ -325,6 +332,9 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
         await socket.accept()
         try:
             while True:
+                if access.enabled and access.identify(token) is None:
+                    await socket.close(code=1008)
+                    break
                 await socket.send_json(links.snapshot(vehicle_id))
                 await asyncio.sleep(0.25)
         except (WebSocketDisconnect, RuntimeError, OSError):
@@ -423,11 +433,14 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
         return {**result, "query": payload.query.value}
 
     @app.get("/api/v1/health")
-    def health():
+    def health(request: Request):
+        account = access.identify(request.cookies.get(COOKIE, ""))
+        visible = (i for i in links.sessions if not access.enabled or (account and account.permits(i)))
         return {"service": "vihanga-standalone", "status": "ok",
                 "deployment": "LOCAL_STATION" if dist is not None else "LOCAL_DEVELOPMENT",
                 "console_served": dist is not None, "physical_flight_control": False,
-                "live_vehicle_stream": any(links.snapshot(i)["status"] == "LIVE" for i in links.sessions)}
+                "bench_read_configured": os.environ.get("VIHANGA_BENCH_READ_REQUESTS") == "1",
+                "live_vehicle_stream": any(links.snapshot(i)["status"] == "LIVE" for i in visible)}
 
     @app.get("/api/v1/capabilities")
     def capabilities():
@@ -446,7 +459,7 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
             rows = con.execute("SELECT * FROM vehicles ORDER BY created_at, vehicle_id").fetchall()
             return [{**dict(row), "link_state": links.snapshot(row["vehicle_id"])["status"],
                      "control_authorized": False}
-                    for row in rows]
+                    for row in rows if can_see(row["vehicle_id"])]
 
     @app.post("/api/v1/vehicles", status_code=201)
     def register_vehicle(vehicle: VehicleCreate):
@@ -471,18 +484,19 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
     def missions():
         with db() as con:
             rows = con.execute("SELECT * FROM missions ORDER BY rowid DESC").fetchall()
-            return [mission_row(row) for row in rows]
+            return [mission_row(row) for row in rows if can_see(row["vehicle_id"])]
 
     @app.get("/api/v1/missions/{mission_id}")
     def mission(mission_id: str):
         with db() as con:
             row = con.execute("SELECT * FROM missions WHERE mission_id=?", (mission_id,)).fetchone()
-        if row is None:
+        if row is None or not can_see(row["vehicle_id"]):
             raise HTTPException(status_code=404, detail="Mission draft not found")
         return mission_row(row)
 
     @app.post("/api/v1/missions", status_code=201)
     def create_mission(payload: MissionDraftCreate):
+        require_vehicle(payload.vehicle_id)
         waypoint_list = [p.model_dump() for p in payload.waypoints]
         canonical = json.dumps({
             "vehicle_id": payload.vehicle_id, "title": payload.title,

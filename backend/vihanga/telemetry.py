@@ -22,6 +22,7 @@ from pymavlink import mavutil
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from websockets.asyncio.client import connect
+from vihanga.link_evidence import UpstreamEvidence, poll_upstream
 
 
 class StrictModel(BaseModel):
@@ -432,6 +433,7 @@ class Session:
     bench_queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=8))
     bench_last_request_at: float = -1.0
     bench_sent: int = 0
+    upstream: tuple[UpstreamEvidence, float] | None = None
 
     def snapshot(self) -> dict:
         state = self.state
@@ -447,6 +449,8 @@ class Session:
         return {
             "vehicle_id": self.vehicle_id, "transport": self.kind,
             "status": state, "error_code": self.error_code,
+            "path_evidence": self.upstream[0].snapshot(self.upstream[1], sample["age_ms"])
+                             if self.upstream and self.state == "CONNECTED" else None,
             "flight_control_enabled": False, **sample
         }
 
@@ -506,6 +510,8 @@ class LinkManager:
             "primary_frame_rate_5s_hz": pri["frame_rate_5s_hz"] if pri else None,
             "primary_age_ms": pri["age_ms"] if pri else None,
             "primary_system_id": primary.projector.system_id if primary else None,
+            "primary_path_evidence": pri["path_evidence"] if pri else None,
+            "primary_frames_total": pri["frames_total"] if pri else None,
             "backup_status": bak["status"] if bak else "NOT_CONFIGURED",
             "backup_transport": bak["transport"] if bak else None,
             "backup_error_code": bak["error_code"] if bak else None,
@@ -514,6 +520,9 @@ class LinkManager:
             "backup_frame_rate_5s_hz": bak["frame_rate_5s_hz"] if bak else None,
             "backup_age_ms": bak["age_ms"] if bak else None,
             "backup_system_id": backup.projector.system_id if backup else None,
+            "backup_serial_port": getattr(backup.serial_port, "port", None) if backup else None,
+            "backup_path_evidence": bak["path_evidence"] if bak else None,
+            "backup_frames_total": bak["frames_total"] if bak else None,
         }
 
     async def start_backup(self, request):
@@ -807,9 +816,15 @@ class LinkManager:
                                    max_size=1024, max_queue=16) as ws:
                     session.state = "CONNECTED"
                     failures = 0
-                    async for raw in ws:
-                        if isinstance(raw, bytes):
-                            session.projector.push(raw)
+                    monitor = asyncio.create_task(poll_upstream(session, origin, token))
+                    try:
+                        async for raw in ws:
+                            if isinstance(raw, bytes):
+                                session.projector.push(raw)
+                    finally:
+                        monitor.cancel()
+                        await asyncio.gather(monitor, return_exceptions=True)
+                        session.upstream = None
                 session.projector = MAVLinkProjector(session.projector.system_id)
                 session.state, session.error_code = "RECONNECTING", "BROKER_VIEWER_CLOSED"
                 failures += 1

@@ -15,6 +15,8 @@ The single-process station records one aircraft at a time and keeps the latest 2
 
 ## Upgrade plan
 
+The [telemetry diagnostics, operator access, and physical acceptance guide](TELEMETRY_ACCESS_AND_ACCEPTANCE.md) describes the implementation and how to run the hardware check.
+
 | Priority | Upgrade | Acceptance |
 | --- | --- | --- |
 | 1 | Receiver comparison, capture, playback, and export | Station records both receivers independently and displays outages and source changes in a saved report. |

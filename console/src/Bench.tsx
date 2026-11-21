@@ -12,6 +12,14 @@ const transports: Record<string, string> = {
   DIRECT_LAN_WSS: "Direct Wi-Fi", LOCAL_SERIAL_RECEIVE: "Server USB",
   LOCAL_TCP_RECEIVE: "Local TCP", LOCAL_UDP_SITL: "Local UDP", BROWSER_SERIAL_READ_ONLY: "This PC USB"
 };
+const findings = {
+  EDGE_UPLINK_OFFLINE: "Pi uplink disconnected",
+  UART_WAITING: "Pi UART has no fresh validated frames",
+  EDGE_TO_RELAY_STALE: "Relay ingress is stale",
+  RELAY_TO_STATION_STALE: "Station viewer is stale",
+  THREE_LEGS_OBSERVED: "Packets observed at all three points",
+  UPSTREAM_EVIDENCE_PARTIAL: "Upstream packet evidence is incomplete"
+};
 const format = (n: number | null, unit: string) => n == null ? "—" : n + " " + unit;
 const label = (status: string | null) => status?.toLowerCase().replaceAll("_", " ") ?? "—";
 const timestamp = (stamp: string) => new Date(stamp).toLocaleString();
@@ -23,6 +31,7 @@ type Props = {
   telemetry?: Telemetry;
   browserTelemetry?: Telemetry | null;
   activeBrowser: boolean;
+  readOnly?: boolean;
 };
 
 function receiver(telemetry: Telemetry | undefined, role: BenchRole): BenchReceiver {
@@ -34,8 +43,25 @@ function receiver(telemetry: Telemetry | undefined, role: BenchRole): BenchRecei
     age_ms: telemetry?.[`${role}_age_ms`] ?? null,
     frame_rate_hz: telemetry?.[`${role}_frame_rate_5s_hz`] ?? null,
     system_id: telemetry?.[`${role}_system_id`] ?? null,
+    frames_total: telemetry?.[`${role}_frames_total`] ?? null,
+    path_evidence: telemetry?.[`${role}_path_evidence`] ?? null,
     error_code: telemetry?.[`${role}_error_code`] ?? null,
   };
+}
+
+function ReceiverPath({ data }: { data: BenchReceiver }) {
+  const path = data.path_evidence;
+  if (!path && data.transport !== "VIHANGA_CLOUD_V2") return null;
+  return <div className="bench-path">
+    <p>{path ? findings[path.diagnosis] : "Waiting for broker diagnostics"}</p>
+    {path && <dl>
+      <div><dt>Pi UART accepted</dt><dd>{path.edge?.uart_accepted ?? "—"} · {format(path.edge?.uart_age_ms ?? null, "ms")}</dd></div>
+      <div><dt>Pi uplink sent / dropped</dt><dd>{path.edge?.uplink_sent ?? "—"} / {path.edge?.uplink_dropped ?? "—"}</dd></div>
+      <div><dt>Relay ingress accepted</dt><dd>{path.relay.received} · {format(path.relay.packet_age_ms, "ms")}</dd></div>
+      <div><dt>Relay viewer drops</dt><dd>{path.relay.viewer_dropped}</dd></div>
+      <div><dt>Station accepted</dt><dd>{data.frames_total ?? "—"} · {format(data.age_ms, "ms")}</dd></div>
+    </dl>}
+  </div>;
 }
 
 function ReceiverCard({ title, data, active }: { title: string; data: BenchReceiver; active?: boolean }) {
@@ -53,6 +79,7 @@ function ReceiverCard({ title, data, active }: { title: string; data: BenchRecei
       <div><dt>Expected SYSID</dt><dd>{data.system_id ?? "—"}</dd></div>
     </dl>
     {data.error_code && <p className="bench-error-code">{label(data.error_code)}</p>}
+    <ReceiverPath data={data}/>
   </section>;
 }
 
@@ -94,6 +121,9 @@ function Review({ report }: { report: BenchReport }) {
         {roles.map(role => <span key={role}><b>{roleLabel[role]}</b> {label(sample[role].status)} · {format(sample[role].age_ms, "ms")}</span>)}
         <span><b>Viewer</b> {label(sample.active_source)}</span>
       </div>
+      {roles.map(role => sample[role].path_evidence && <div key={role}>
+        <h4>{roleLabel[role]} path</h4><ReceiverPath data={sample[role]}/>
+      </div>)}
     </div>}
     <h4>Receiver changes</h4>
     {summary.events.length ? <ol className="bench-events">
@@ -108,7 +138,7 @@ function Review({ report }: { report: BenchReport }) {
   </div>;
 }
 
-export default function Bench({ aircraftId, telemetry, browserTelemetry, activeBrowser }: Props) {
+export default function Bench({ aircraftId, telemetry, browserTelemetry, activeBrowser, readOnly }: Props) {
   const [captures, setCaptures] = useState<BenchCapture[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [report, setReport] = useState<BenchReport | null>(null);
@@ -205,11 +235,11 @@ export default function Bench({ aircraftId, telemetry, browserTelemetry, activeB
           <div><h3 id="bench-capture-title">Station captures</h3>
             <p>Records the station API’s primary and backup receivers. This PC USB is live view only.</p></div>
           <div className="bench-record-controls">
-            <select aria-label="Capture duration" value={duration} disabled={Boolean(running) || busy}
+            <select aria-label="Capture duration" value={duration} disabled={Boolean(running) || busy || readOnly}
               onChange={event => setDuration(Number(event.target.value) as BenchDuration)}>
               {benchDurations.map(value => <option key={value} value={value}>{value} s</option>)}
             </select>
-            <button type="button" data-recording={Boolean(running)} disabled={busy}
+            <button type="button" data-recording={Boolean(running)} disabled={busy || readOnly}
               onClick={() => void toggleCapture()}>{running ? "Stop capture" : "Start capture"}</button>
           </div>
         </div>

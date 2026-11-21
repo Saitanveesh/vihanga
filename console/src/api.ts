@@ -102,6 +102,8 @@ export interface Telemetry {
   primary_frame_rate_5s_hz?: number | null;
   primary_age_ms?: number | null;
   primary_system_id?: number | null;
+  primary_frames_total?: number | null;
+  primary_path_evidence?: PathEvidence | null;
   backup_status?: string;
   backup_transport?: string | null;
   backup_error_code?: string | null;
@@ -110,6 +112,8 @@ export interface Telemetry {
   backup_frame_rate_5s_hz?: number | null;
   backup_age_ms?: number | null;
   backup_system_id?: number | null;
+  backup_frames_total?: number | null;
+  backup_path_evidence?: PathEvidence | null;
   airspeed_mps: number | null;
   throttle_pct: number | null;
   frame_rate_5s_hz: number;
@@ -186,6 +190,14 @@ export const benchDurations = [30, 60, 120, 300] as const;
 export type BenchDuration = typeof benchDurations[number];
 export type BenchRole = "primary" | "backup";
 
+export interface PathEvidence {
+  diagnosis: "EDGE_UPLINK_OFFLINE" | "UART_WAITING" | "EDGE_TO_RELAY_STALE" |
+    "RELAY_TO_STATION_STALE" | "THREE_LEGS_OBSERVED" | "UPSTREAM_EVIDENCE_PARTIAL";
+  relay: { online: boolean; received: number; rejected: number; viewer_dropped: number; packet_age_ms: number | null };
+  edge: { uart_open: boolean; uart_bytes: number; uart_accepted: number; uart_rejected: number;
+    uart_age_ms: number | null; uplink_sent: number; uplink_dropped: number } | null;
+}
+
 export interface BenchReceiver {
   status: string;
   transport: string | null;
@@ -195,6 +207,8 @@ export interface BenchReceiver {
   frame_rate_hz: number | null;
   error_code: string | null;
   system_id: number | null;
+  frames_total?: number | null;
+  path_evidence?: PathEvidence | null;
 }
 export interface BenchCapture {
   capture_id: string;

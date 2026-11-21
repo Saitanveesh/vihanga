@@ -42,6 +42,8 @@ def receiver_snapshot(snapshot: dict, receiver: str) -> dict:
         "frame_rate_hz": number(snapshot.get(f"{receiver}_frame_rate_5s_hz")),
         "error_code": code(snapshot.get(f"{receiver}_error_code")),
         "system_id": number(snapshot.get(f"{receiver}_system_id")),
+        "frames_total": number(snapshot.get(f"{receiver}_frames_total")),
+        "path_evidence": snapshot.get(f"{receiver}_path_evidence"),
     }
 
 

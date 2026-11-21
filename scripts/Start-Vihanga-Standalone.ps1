@@ -154,8 +154,7 @@ if (-not $health) {
 }
 
 if ($BenchRead) {
-    $caps = Invoke-RestMethod -Uri "http://127.0.0.1:8010/api/v1/capabilities" -TimeoutSec 4
-    if ($caps.bench_nonactuating_requests -ne $true) {
+    if ($health.bench_read_configured -ne $true) {
         throw "Existing API was started without bench-read mode. Stop that API and relaunch with -BenchRead -PropellersRemoved. No request was sent."
     }
 }
