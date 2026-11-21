@@ -7,6 +7,7 @@ const stats = vi.hoisted(() => ({
   layers: new Set<string>(), images: new Set<string>(),
   data: null as ReturnType<typeof buildGeometry> | null,
   click: null as (() => void) | null,
+  drag: null as (() => void) | null, centers: [] as [number, number][],
   hit: undefined as number | undefined
 }));
 vi.mock("maplibre-gl", () => {
@@ -14,7 +15,10 @@ vi.mock("maplibre-gl", () => {
     source: { setData: (data: ReturnType<typeof buildGeometry>) => void } | null = null;
     dragPan = { disable: () => undefined, enable: () => undefined };
     addControl() {}
-    on(event: string, handler: () => void) { if (event === "click") stats.click = handler; }
+    on(event: string, handler: () => void) {
+      if (event === "click") stats.click = handler;
+      if (event === "dragstart") stats.drag = handler;
+    }
     isStyleLoaded() { return true; }
     getSource() { return this.source; }
     addSource(_name: string, { data }: { data: ReturnType<typeof buildGeometry> }) {
@@ -30,6 +34,7 @@ vi.mock("maplibre-gl", () => {
     remove() {}
     setStyle() { this.source = null; }
     flyTo() {}
+    jumpTo({ center }: { center: [number, number] }) { stats.centers.push(center); }
     fitBounds(_bounds: unknown, options: { padding: { left: number } }) { stats.fitPaddingLeft = options.padding.left; }
   }
   return { default: { Map: MapStub, NavigationControl: class {}, LngLatBounds: class { extend() {} } } };
@@ -40,6 +45,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   stats.resizeCalls = 0; stats.fitPaddingLeft = null;
   stats.layers.clear(); stats.images.clear(); stats.data = null; stats.hit = undefined;
+  stats.drag = null;
+  stats.centers = [];
 });
 
 function mockBadgeCanvas() {
@@ -144,6 +151,23 @@ describe("geographic map visual geometry regression", () => {
     click(point);
     expect(props.onMapClick).toHaveBeenCalledWith(origin);
     expect(stats.data?.features.find(f => f.properties.selected)?.properties.index).toBe(2);
+  });
+
+  it("follows fresh positions and reports a manual drag", () => {
+    const props = {
+      polygon: [], route: [], track: [], drawing: false, basemap: "grid" as const,
+      centerSignal: 0, fitSignal: 0, follow: true,
+      onFollowInterrupted: vi.fn(), onMapClick: vi.fn(), onVertexMove: vi.fn()
+    };
+    const view = render(<GeoMap {...props} position={origin}/>);
+    view.rerender(<GeoMap {...props} position={null}/>);
+    expect(stats.centers).toEqual([[origin.longitude, origin.latitude]]);
+    view.rerender(<GeoMap {...props} position={route[1]}/>);
+    expect(stats.centers.at(-1)).toEqual([route[1].longitude, route[1].latitude]);
+    stats.drag?.();
+    expect(props.onFollowInterrupted).toHaveBeenCalledOnce();
+    view.rerender(<GeoMap {...props} follow={false} position={route[0]}/>);
+    expect(stats.centers).toHaveLength(2);
   });
 
   it("fits the route with padding bounded by canvas width", () => {

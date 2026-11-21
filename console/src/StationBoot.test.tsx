@@ -49,11 +49,12 @@ describe("station splash", () => {
     expect(complete).not.toHaveBeenCalled();
 
     view.rerender(<BootSplash ready onComplete={complete}/>);
-    expect(animate).toHaveBeenCalledTimes(2);
+    expect(animate).toHaveBeenCalledTimes(3);
+    expect(animate).toHaveBeenLastCalledWith([{ backgroundColor: "#000" }, { backgroundColor: "transparent" }], expect.any(Object));
     act(() => vi.advanceTimersByTime(400));
     expect(complete).toHaveBeenCalledOnce();
     view.unmount();
-    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(cancel).toHaveBeenCalledTimes(3);
   });
 
   it("stops active animations and hands off immediately when motion is reduced", () => {

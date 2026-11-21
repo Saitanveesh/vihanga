@@ -15,6 +15,8 @@ type Props = {
   basemap: "satellite" | "streets" | "grid";
   centerSignal: number;
   fitSignal: number;
+  follow?: boolean;
+  onFollowInterrupted?: () => void;
   selectedWaypoint?: number | null;
   onWaypointSelect?: (index: number) => void;
   fitLeftPadding?: number;
@@ -120,7 +122,7 @@ function installWaypointBadges(map: MapLibreMap, count: number) {
 
 export default function GeoMap({
   polygon, route, track, position, drawing, editingBoundary = false, basemap, centerSignal, fitSignal,
-  selectedWaypoint = null, onWaypointSelect, fitLeftPadding = 120,
+  selectedWaypoint = null, onWaypointSelect, fitLeftPadding = 120, follow = false, onFollowInterrupted,
   onMapClick, onVertexMove
 }: Props) {
   const [mapUnavailable, setMapUnavailable] = useState(false);
@@ -130,6 +132,7 @@ export default function GeoMap({
   const callback = useRef(onMapClick);
   const vertexCallback = useRef(onVertexMove);
   const waypointCallback = useRef(onWaypointSelect);
+  const followInterrupt = useRef(onFollowInterrupted);
   const geometryRef = useRef({polygon,route});
   geometryRef.current = {polygon,route};
   const data = useRef(buildGeometry(polygon, route, position, track, selectedWaypoint));
@@ -139,6 +142,7 @@ export default function GeoMap({
   callback.current = onMapClick;
   vertexCallback.current = onVertexMove;
   waypointCallback.current = onWaypointSelect;
+  followInterrupt.current = onFollowInterrupted;
   data.current = buildGeometry(polygon, route, position, track, selectedWaypoint);
   drawingRef.current = drawing;
   editBoundaryRef.current = editingBoundary;
@@ -243,6 +247,7 @@ export default function GeoMap({
         map.dragPan.enable();
       }
     };
+    map.on("dragstart", () => followInterrupt.current?.());
     map.on("mouseup", release);
     map.on("mouseout", release);
     map.on("click", event => {
@@ -295,9 +300,14 @@ export default function GeoMap({
     if (map && position && centerSignal > 0) {
       map.flyTo({ center: [position.longitude, position.latitude], zoom: 17, essential: true });
     }
-    // Camera is recentered only by an explicit operator action.
+    // The center button runs only when its signal changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerSignal]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && follow && position) map.jumpTo({ center: [position.longitude, position.latitude] });
+  }, [follow, position]);
 
   useEffect(() => {
     const map = mapRef.current;

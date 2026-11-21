@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Telemetry } from "./api";
 import FlightTrend, { useFlightTrend } from "./FlightTrend";
+import FlightEvents, { useFlightEvents } from "./FlightEvents";
 import { currentTelemetry, finite } from "./flightHistory";
 
 const ticks = [0, .125, .25, .375, .5, .625, .75, .875, 1];
@@ -75,7 +76,14 @@ function Heading({ yaw }: { yaw: number | null }) {
 export default function FlightInstruments({ telemetry, aircraftId = "" }: {
   telemetry?: Telemetry; aircraftId?: string;
 }) {
-  const [trendsOpen, setTrendsOpen] = useState(false);
+  const eventLog = useFlightEvents(aircraftId, telemetry);
+  return <InstrumentDisplay key={aircraftId} aircraftId={aircraftId} telemetry={telemetry} eventLog={eventLog}/>;
+}
+
+function InstrumentDisplay({ telemetry, aircraftId, eventLog }: {
+  telemetry?: Telemetry; aircraftId: string; eventLog: ReturnType<typeof useFlightEvents>;
+}) {
+  const [display, setDisplay] = useState<"instruments" | "trends" | "events">("instruments");
   const data = currentTelemetry(telemetry);
   const trend = useFlightTrend(data);
   const groundspeed = finite(data?.groundspeed_mps);
@@ -92,14 +100,16 @@ export default function FlightInstruments({ telemetry, aircraftId = "" }: {
   return <section className="station-instruments" aria-label="Flight instruments from received MAVLink">
     <div className="instrument-titlebar">
       <div role="group" aria-label="Flight display">
-        <button type="button" aria-pressed={!trendsOpen} onClick={() => setTrendsOpen(false)}>Instruments</button>
-        <button type="button" aria-pressed={trendsOpen} onClick={() => setTrendsOpen(true)}>Telemetry trends</button>
+        <button type="button" aria-pressed={display === "instruments"} onClick={() => setDisplay("instruments")}>Instruments</button>
+        <button type="button" aria-pressed={display === "trends"} onClick={() => setDisplay("trends")}>Telemetry trends</button>
+        <button type="button" aria-pressed={display === "events"} onClick={() => setDisplay("events")}>Events</button>
       </div>
       <span className={heartbeat ? "readout-good" : "readout-bad"} title="Flight-controller heartbeat">
-        <i aria-hidden="true"/> {heartbeat ? "FRESH" : "NO DATA"}
+        <i aria-hidden="true"/> {heartbeat ? "FC HEARTBEAT" : telemetry?.status === "STALE" ? "TELEMETRY STALE" : "NO FC HEARTBEAT"}
       </span>
     </div>
-    {trendsOpen ? <FlightTrend aircraftId={aircraftId} {...trend}/> :
+    {display === "events" ? <FlightEvents aircraftId={aircraftId} {...eventLog}/> :
+      display === "trends" ? <FlightTrend aircraftId={aircraftId} {...trend}/> :
       <div className="station-gauge-grid">
         <Gauge label="Ground speed" value={groundspeed} min={0} max={Math.max(30, Math.ceil((groundspeed ?? 0) / 10) * 10)} unit="m/s"
           detail={airspeed == null ? "Air —" : "Air " + text(airspeed)}/>

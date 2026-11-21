@@ -55,6 +55,15 @@ export function flightCsv(points: FlightPoint[]): string {
   return [header.join(","), ...rows].join("\r\n");
 }
 
+export function downloadCsv(csv: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const TREND_WIDTH = 264;
 export const TREND_HEIGHT = 52;
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Telemetry } from "./api";
 import {
-  flightCsv, flightMetrics, recordFlightPoint, trendGeometry,
+  downloadCsv, flightCsv, flightMetrics, recordFlightPoint, trendGeometry,
   HISTORY_DURATION_MS, SAMPLE_INTERVAL_MS, TREND_HEIGHT, TREND_WIDTH, type FlightPoint
 } from "./flightHistory";
 
@@ -28,19 +28,12 @@ export function useFlightTrend(telemetry?: Telemetry) {
   return trend;
 }
 
-function download(points: FlightPoint[], aircraftId: string) {
-  const url = URL.createObjectURL(new Blob([flightCsv(points)], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "vihanga-" + aircraftId + "-telemetry.csv";
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-export default function FlightTrend({ aircraftId, now, points }: {
+export default function FlightTrend({ aircraftId, now: liveNow, points: livePoints }: {
   aircraftId: string; now: number; points: FlightPoint[];
 }) {
   const [duration, setDuration] = useState(HISTORY_DURATION_MS);
+  const [frozen, setFrozen] = useState<{ now: number; points: FlightPoint[] } | null>(null);
+  const { now, points } = frozen ?? { now: liveNow, points: livePoints };
   const visible = points.filter(point => point.at >= now - duration && point.frames !== null);
   return <div className="station-trends">
     <div className="station-trend-grid">
@@ -66,9 +59,13 @@ export default function FlightTrend({ aircraftId, now, points }: {
         {[30_000, HISTORY_DURATION_MS].map(period => <button key={period} type="button"
           aria-pressed={duration === period} onClick={() => setDuration(period)}>{period / 1000} s</button>)}
       </div>
-      <span>{visible.length} {visible.length === 1 ? "sample" : "samples"} · 1 s sampling</span>
-      <button type="button" disabled={!aircraftId || visible.length === 0}
-        onClick={() => download(visible, aircraftId)}>Export CSV</button>
+      <span>{visible.length} {visible.length === 1 ? "sample" : "samples"} · {frozen ? "Paused" : "1 s sampling"}</span>
+      <div>
+        <button type="button" aria-pressed={Boolean(frozen)} disabled={!frozen && !visible.length}
+          onClick={() => setFrozen(frozen ? null : { now, points })}>{frozen ? "Resume live" : "Pause charts"}</button>
+        <button type="button" disabled={!aircraftId || !visible.length}
+          onClick={() => downloadCsv(flightCsv(visible), "vihanga-" + aircraftId + "-telemetry.csv")}>Export CSV</button>
+      </div>
     </div>
   </div>;
 }

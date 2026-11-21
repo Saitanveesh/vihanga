@@ -100,7 +100,7 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
 }
 .station-statusbar > span { white-space: nowrap; }
 .station-statusbar strong { color: var(--station-text); font-weight: 550; }
-.station-statusbar .station-armed { color: var(--station-warn); }
+.station-statusbar .station-armed, .station-statusbar .station-stale { color: var(--station-warn); }
 .station-statusbar .station-authority { margin-inline-start: auto; color: var(--station-muted); }
 
 .station-instruments {
@@ -125,7 +125,7 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
   border-bottom: 1px solid var(--station-line);
 }
 .instrument-titlebar > div { display: flex; align-self: stretch; gap: 9px; }
-.instrument-titlebar button, .station-trend-controls button {
+.instrument-titlebar button, .station-trend-controls button, .station-events-tools button {
   background: #13202b;
   border: 1px solid var(--station-line);
   border-radius: 4px;
@@ -145,7 +145,8 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
   border-color: var(--station-accent);
   color: var(--station-text);
 }
-.instrument-titlebar button:hover, .station-trend-controls button:hover:not(:disabled) { background: #263947; }
+.instrument-titlebar button:hover, .station-trend-controls button:hover:not(:disabled),
+.station-events-tools button:hover:not(:disabled) { background: #263947; }
 .instrument-titlebar > span { font: 10px var(--station-mono); }
 .instrument-titlebar > span i {
   display: inline-block;
@@ -268,9 +269,46 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
 .station-trend-card svg polyline { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
 .station-trend-empty { position: absolute; inset: 52% 0 auto; text-align: center; color: var(--station-muted); font-size: 10px; }
 .station-trend-controls { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding-top: 5px; }
-.station-trend-controls > div { display: flex; gap: 4px; }
+.station-trend-controls > div, .station-events-tools > div { display: flex; flex-wrap: wrap; gap: 4px; }
 .station-trend-controls > span { color: var(--station-muted); font: 10px var(--station-mono); }
 .station-trend-controls button[aria-pressed="true"] { border-color: var(--station-accent); color: var(--station-accent); }
+
+.station-events { padding: 8px 12px; }
+.station-events-tools {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 7px;
+  color: var(--station-muted);
+  font-size: 11px;
+}
+.station-events-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  height: clamp(70px, 19vh, 160px);
+  overflow-y: auto;
+  background: #0b131b;
+  border: 1px solid var(--station-line);
+  border-radius: 4px;
+  scrollbar-color: #3b596b #0b131b;
+}
+.station-events-list:focus-visible { outline: 1px solid var(--station-accent); }
+.station-events-list li {
+  display: grid;
+  grid-template-columns: 8ch 8ch minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #202d39;
+}
+.station-events-list li strong { font-size: 11px; font-weight: 550; overflow-wrap: anywhere; }
+.station-events-list time, .station-event-kind { color: var(--station-muted); font: 10px var(--station-mono); }
+.station-event-kind[data-category="Link"] { color: var(--station-accent); }
+.station-event-kind[data-category="Marker"] { color: var(--station-warn); }
+.workspace .map-tools button[aria-pressed="true"] { background: #1b4658; color: #c8f3ff; }
 
 .station-splash {
   position: fixed;
@@ -395,4 +433,13 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
   .station-trend-card svg { height: 38px; }
   .station-statusbar { font-size: 9px; padding-inline: 5px; flex-wrap: wrap; gap: 3px 8px; }
   .station-statusbar .station-authority { margin-inline-start: 0; }
+  .station-trend-controls { flex-wrap: wrap; }
+}
+@media (max-width: 600px) {
+  .workspace .rail { width: 100%; }
+  .workspace .identity { padding: 7px 8px; }
+  .workspace .toolbar { height: auto; }
+  .station-events-list li { gap: 6px; padding-inline: 6px; }
+  .instrument-titlebar > div { gap: 4px; }
+  .instrument-titlebar > span { font-size: 9px; }
 }

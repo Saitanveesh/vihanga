@@ -10,6 +10,7 @@ function canAnimate(preference = window.matchMedia?.(reducedMotion)) {
 }
 
 export default function BootSplash({ ready, onComplete }: { ready: boolean; onComplete: () => void }) {
+  const surface = useRef<HTMLElement>(null);
   const logo = useRef<SVGSVGElement>(null);
   const [motion, setMotion] = useState(() => canAnimate());
   const [revealed, setRevealed] = useState(false);
@@ -40,18 +41,21 @@ export default function BootSplash({ ready, onComplete }: { ready: boolean; onCo
       onComplete();
       return;
     }
-    if (!revealed || !logo.current) return;
-    const fade = logo.current.animate([{ opacity: 1 }, { opacity: 0 }], {
-      duration: exitDuration, easing: "ease-in-out", fill: "forwards"
-    });
+    if (!revealed || !logo.current || !surface.current) return;
+    const options: KeyframeAnimationOptions = { duration: exitDuration, easing: "ease-in-out", fill: "forwards" };
+    const fade = logo.current.animate([{ opacity: 1 }, { opacity: 0 }], options);
+    const unveil = surface.current.animate([
+      { backgroundColor: "#000" }, { backgroundColor: "transparent" }
+    ], options);
     const timer = window.setTimeout(onComplete, exitDuration);
     return () => {
       window.clearTimeout(timer);
       fade.cancel();
+      unveil.cancel();
     };
   }, [motion, ready, revealed, onComplete]);
 
-  return <main className="station-splash" aria-busy="true">
+  return <main className="station-splash" aria-busy="true" ref={surface}>
     <svg className="station-splash-logo" ref={logo} viewBox="8 23 80 56" width="208" height="146"
       role="img" aria-label="VIHANGA">
       <defs>

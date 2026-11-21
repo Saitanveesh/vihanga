@@ -1,5 +1,5 @@
 import StationMark from "./StationMark";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import BootSplash from "./BootSplash";
 import App from "./App";
 
@@ -30,6 +30,10 @@ export default function StationAccess() {
   const [stationReady, setStationReady] = useState(false);
   const markStationReady = useCallback(() => setStationReady(true), []);
   const finishSplash = useCallback(() => setShowSplash(false), []);
+  const content = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (content.current) content.current.inert = showSplash;
+  }, [showSplash]);
 
   useEffect(() => {
     let request: AbortController | undefined;
@@ -103,10 +107,11 @@ export default function StationAccess() {
 
   return <>
     {showSplash && <BootSplash ready={splashReady} onComplete={finishSplash}/>}
-    {authorized ? <App showWorkspace={!showSplash} onInitialChecksComplete={markStationReady}
-      account={session.username && session.role ? { name: session.username, role: session.role,
-        signOut: () => void signOut() } : undefined}/>
-      : !showSplash && <main className="station-access">
+    <div ref={content} aria-hidden={showSplash || undefined}>
+      {authorized ? <App onInitialChecksComplete={markStationReady}
+        account={session.username && session.role ? { name: session.username, role: session.role,
+          signOut: () => void signOut() } : undefined}/>
+        : (session || error) && <main className="station-access">
         <section className="station-access-card">
           <StationMark phase={error ? "attention" : !session || busy ? "checking" : "idle"}/>
           <h1>{session?.required ? "Station sign-in" : error ? "Station connection unavailable" : "Checking station access"}</h1>
@@ -121,5 +126,6 @@ export default function StationAccess() {
             onClick={() => { setError(""); setShowSplash(true); setRetry(value => value + 1); }}>Retry</button></div>}
         </section>
       </main>}
+    </div>
   </>;
 }

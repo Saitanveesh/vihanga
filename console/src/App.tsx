@@ -2,7 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { MapPoint } from "./GeoMap";
 import FlightInstruments from "./FlightInstruments";
 import Bench from "./Bench";
-import { currentTelemetry } from "./flightHistory";
+import { currentTelemetry, finite } from "./flightHistory";
+import useDisplayTelemetry from "./useDisplayTelemetry";
 import OperationsPanel from "./OperationsPanel";
 import ControlPanel from "./ControlPanel";
 import NetworkWatch from "./NetworkWatch";
@@ -22,7 +23,8 @@ import {
 } from "./api";
 
 type Section = "FLIGHT" | "CONTROL" | "PLAN" | "FLEET" | "LINK" | "BENCH" | "HISTORY" | "VIDEO";
-const GeoMap = lazy(() => import("./GeoMap"));
+const loadGeoMap = () => import("./GeoMap");
+const GeoMap = lazy(loadGeoMap);
 const sectionTitles: Record<Section, string> = {
   FLIGHT: "Flight monitoring", CONTROL: "Aircraft controls", PLAN: "Mission planning",
   FLEET: "Aircraft directory", LINK: "Link health", BENCH: "Bench", HISTORY: "Mission drafts", VIDEO: "Live video"
@@ -85,8 +87,7 @@ const initialVehicle: VehicleCreate = {
   vehicle_id: "", label: "", autopilot: "ARDUPILOT", interface: "UART"
 };
 
-export default function App({ account, showWorkspace = true, onInitialChecksComplete }: {
-  showWorkspace?: boolean;
+export default function App({ account, onInitialChecksComplete }: {
   onInitialChecksComplete?: () => void;
   account?: { name: string; role: "admin" | "operator" | "viewer"; signOut: () => void };
 } = {}) {
@@ -105,6 +106,11 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
   const [fleetOpen, setFleetOpen] = useState(false);
   const [basemap, setBasemap] = useState<Basemap>(initialBasemap);
   const [centerSignal, setCenterSignal] = useState(0);
+  const [followedAircraftId, setFollowedAircraftId] = useState("");
+  const followAircraft = Boolean(selected && followedAircraftId === selected);
+  const stopFollowing = useCallback(() => setFollowedAircraftId(""), []);
+  useEffect(stopFollowing, [selected, stopFollowing]);
+  useEffect(() => { void loadGeoMap().catch(() => {}); }, []);
 
   const [vehicleForm, setVehicleForm] = useState<VehicleCreate>(initialVehicle);
   const [drawMode, setDrawMode] = useState<DrawMode>("NONE");
@@ -309,7 +315,7 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
   const active = vehicles.find(v => v.vehicle_id === selected);
   const primarySample = readings[selected];
   const localBrowserSample = browserSerialAircraft === selected ? browserSerialSample : null;
-  const sample = localBrowserSample && browserSerialSelected
+  const sample = useMemo(() => localBrowserSample && browserSerialSelected
     ? {...localBrowserSample,
        active_source:"BACKUP" as const,
        primary_status:primarySample?.status || "OFFLINE",
@@ -322,7 +328,10 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
        backup_attitude_fresh:localBrowserSample.attitude_fresh,
        backup_frame_rate_5s_hz:localBrowserSample.frame_rate_5s_hz,
        backup_age_ms:localBrowserSample.age_ms}
-    : primarySample;
+    : primarySample, [browserSerialSelected, localBrowserSample, primarySample]);
+  const activeTelemetry = useDisplayTelemetry(browserSerialSelected ? localBrowserSample ?? primarySample : primarySample);
+  const displaySample = sample && activeTelemetry && activeTelemetry.status !== sample.status
+    ? { ...sample, status: activeTelemetry.status, heartbeat_fresh: false, attitude_fresh: false } : sample;
   useEffect(() => {
     if (!selected) {
       setOperatorCatalog(null);
@@ -345,9 +354,11 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
     return () => { cancelled = true; };
   }, [selected, sample?.transport, sample?.active_source]);
   const cameraUrl = cameraPages[selected] ?? "";
-  const current = currentTelemetry(sample);
-  const location = current?.latitude != null && current.longitude != null
-    ? { latitude: current.latitude, longitude: current.longitude } : null;
+  const current = currentTelemetry(displaySample);
+  const latitude = finite(current?.latitude);
+  const longitude = finite(current?.longitude);
+  const location = useMemo(() => latitude != null && longitude != null &&
+    Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { latitude, longitude } : null, [latitude, longitude]);
   const waypoints = openedMission?.waypoints ?? editedRoute ?? survey?.waypoints ?? manual;
   function aircraftStatus(vehicleId: string): string | undefined {
     return browserSerialSelected && browserSerialAircraft === vehicleId
@@ -379,6 +390,7 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
     setSelectedWaypoint(null);
   }
   function navigate(page: Section) {
+    if (page !== "FLIGHT") stopFollowing();
     previewRevision.current += 1;
     setSelectedWaypoint(null);
     setPanelOpen(page !== "FLIGHT");
@@ -711,7 +723,7 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
     } catch (e) { fail(e); }
   }
 
-  if (!showWorkspace || !boot.initialized) return null;
+  if (!boot.initialized) return null;
 
   return (
     <div className="workspace">
@@ -773,7 +785,7 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
               <UiIcon name="fleet" size={15}/> {fleetOpen ? "Hide aircraft" : "Aircraft"}
             </button>
             <span className={"link-chip " + (current?.status === "LIVE" ? "ok" : "")}>
-              <span className="chip-dot"/>{linkLabel(sample?.status === "LIVE" && !current ? "STALE" : sample?.status)}
+              <span className="chip-dot"/>{linkLabel(displaySample?.status)}
             </span>
             <span className="vehicle-chip">{active?.vehicle_id || "NO AIRCRAFT"}</span>
             <button type="button" className="toolbar-button diagnostics-toggle"
@@ -798,6 +810,7 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
               track={observedTrack} position={location} drawing={section === "PLAN" && drawMode !== "NONE"}
               editingBoundary={section === "PLAN" && drawMode === "POLYGON"}
               basemap={basemap} centerSignal={centerSignal} fitSignal={fitSignal}
+              follow={section === "FLIGHT" && followAircraft} onFollowInterrupted={stopFollowing}
               selectedWaypoint={selectedWaypoint} onWaypointSelect={setSelectedWaypoint}
               fitLeftPadding={panelOpen && (section === "PLAN" || section === "HISTORY") ? 414 : 76}
               onMapClick={clicked} onVertexMove={moveVertex}/>
@@ -809,9 +822,13 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
               title="Display geometry without online map tiles">Offline</button>
             <button disabled={!location} title={!location ? "No fresh GPS fix" : "Center selected aircraft"}
               onClick={() => setCenterSignal(x => x + 1)}>Aircraft</button>
+            {section === "FLIGHT" && <button type="button" className={followAircraft ? "chosen" : ""}
+              aria-pressed={followAircraft} aria-label="Follow aircraft" disabled={!followAircraft && !location}
+              title={!location ? "No fresh GPS fix" : "Keep the map centered on the aircraft"}
+              onClick={() => setFollowedAircraftId(followAircraft ? "" : selected)}>Follow</button>}
             <button disabled={waypoints.length === 0 && polygon.length === 0}
               title="Fit survey or route to map"
-              onClick={() => setFitSignal(x => x + 1)}>Fit route</button>
+              onClick={() => { stopFollowing(); setFitSignal(x => x + 1); }}>Fit route</button>
           </div>
           {section === "PLAN" && <div className="operation-ribbon" role="toolbar" aria-label="Planning tools">
             <button className={section === "PLAN" && drawMode === "POLYGON" ? "active" : ""}
@@ -1084,7 +1101,7 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
           {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
         </div>
         <div hidden={section !== "FLIGHT"} className="station-instrument-area">
-          <FlightInstruments key={selected} telemetry={sample} aircraftId={selected}/>
+          <FlightInstruments telemetry={displaySample} aircraftId={selected}/>
         </div>
         <footer className="station-statusbar" aria-label="Station status">
           <span>MODE <strong>{current?.heartbeat_fresh ? current.mode ?? "—" : "—"}</strong></span>
@@ -1093,7 +1110,9 @@ export default function App({ account, showWorkspace = true, onInitialChecksComp
           </strong></span>
           <span>SOURCE <strong>{current?.transport === "BROWSER_SERIAL_READ_ONLY" ? "PC USB" :
             current?.transport ? current.active_source ?? "PRIMARY" : "—"}</strong></span>
-          <span>PACKET <strong>{current?.age_ms == null ? "—" : Math.round(current.age_ms) + " ms"}</strong></span>
+          <span>PACKET <strong className={displaySample?.status === "STALE" ? "station-stale" : undefined}>
+            {displaySample?.status === "STALE" ? "STALE" : current?.age_ms == null ? "—" : Math.round(current.age_ms) + " ms"}
+          </strong></span>
           <span className="station-authority">TELEMETRY ONLY</span>
         </footer>
       </div>
