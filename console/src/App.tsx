@@ -6,7 +6,7 @@ import { currentTelemetry } from "./flightHistory";
 import OperationsPanel from "./OperationsPanel";
 import ControlPanel from "./ControlPanel";
 import NetworkWatch from "./NetworkWatch";
-import StationBoot, { useStationBoot, type BootData } from "./StationBoot";
+import { useStationBoot, type BootData } from "./StationBoot";
 import { BrowserSerialReceiver } from "./BrowserSerial";
 import ConnectionSettings, { type ConnectionRequest, type ConnectionRole } from "./ConnectionSettings";
 import UiIcon, { type IconName } from "./UiIcon";
@@ -85,7 +85,9 @@ const initialVehicle: VehicleCreate = {
   vehicle_id: "", label: "", autopilot: "ARDUPILOT", interface: "UART"
 };
 
-export default function App({ account }: {
+export default function App({ account, showWorkspace = true, onInitialChecksComplete }: {
+  showWorkspace?: boolean;
+  onInitialChecksComplete?: () => void;
   account?: { name: string; role: "admin" | "operator" | "viewer"; signOut: () => void };
 } = {}) {
   const [section, setSection] = useState<Section>("FLIGHT");
@@ -168,6 +170,9 @@ export default function App({ account }: {
     if (nextMissions) setMissions(nextMissions);
   }, []);
   const boot = useStationBoot(applyBootData);
+  useEffect(() => {
+    if (boot.initialized) onInitialChecksComplete?.();
+  }, [boot.initialized, onInitialChecksComplete]);
   useEffect(() => { if (selected) savePreference(AIRCRAFT_PREFERENCE, selected); }, [selected]);
   useEffect(() => savePreference(BASEMAP_PREFERENCE, basemap), [basemap]);
 
@@ -706,7 +711,7 @@ export default function App({ account }: {
     } catch (e) { fail(e); }
   }
 
-  if (!boot.dismissed) return <StationBoot {...boot}/>;
+  if (!showWorkspace || !boot.initialized) return null;
 
   return (
     <div className="workspace">

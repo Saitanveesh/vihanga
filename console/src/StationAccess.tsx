@@ -1,8 +1,11 @@
 import StationMark from "./StationMark";
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import BootSplash from "./BootSplash";
 import App from "./App";
 
 type Session = { required: boolean; username: string | null; role: "admin" | "operator" | "viewer" | null };
+
+const verificationError = "The station connection could not be verified.";
 
 async function sessionRequest(action: string, payload?: object, signal?: AbortSignal): Promise<Session> {
   const response = await fetch("/api/v1/station/" + action, {
@@ -23,35 +26,44 @@ export default function StationAccess() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [showSplash, setShowSplash] = useState(true);
+  const [stationReady, setStationReady] = useState(false);
+  const markStationReady = useCallback(() => setStationReady(true), []);
+  const finishSplash = useCallback(() => setShowSplash(false), []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    let checking = false;
+    let request: AbortController | undefined;
+    let active = true;
     let standalone = false;
     async function refresh() {
-      if (checking || standalone) return;
-      checking = true;
+      if (!active || request || standalone) return;
+      const controller = new AbortController();
+      request = controller;
+      const deadline = window.setTimeout(() => controller.abort(), 3500);
       try {
-        const next = await sessionRequest("session", undefined, AbortSignal.any([
-          controller.signal, AbortSignal.timeout(3500)
-        ]));
-        if (!controller.signal.aborted) {
+        const next = await sessionRequest("session", undefined, controller.signal);
+        if (active) {
           standalone = !next.required;
           setSession(next);
+          setError(current => current === verificationError ? "" : current);
+          if (next.required && !next.username) setStationReady(false);
         }
       } catch {
-        if (!controller.signal.aborted) {
+        if (active) {
           setSession(null);
-          setError("The station connection could not be verified.");
+          setStationReady(false);
+          setError(verificationError);
         }
       } finally {
-        checking = false;
+        window.clearTimeout(deadline);
+        request = undefined;
       }
     }
     void refresh();
     const timer = window.setInterval(() => void refresh(), 3500);
     return () => {
-      controller.abort();
+      active = false;
+      request?.abort();
       window.clearInterval(timer);
     };
   }, [retry]);
@@ -61,7 +73,9 @@ export default function StationAccess() {
     setError("");
     setBusy(true);
     try {
-      setSession(await sessionRequest("login", { username, password }, AbortSignal.timeout(5000)));
+      const next = await sessionRequest("login", { username, password }, AbortSignal.timeout(5000));
+      setShowSplash(true);
+      setSession(next);
       setRetry(value => value + 1);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not sign in");
@@ -74,30 +88,38 @@ export default function StationAccess() {
   async function signOut() {
     try {
       setSession(await sessionRequest("logout", {}, AbortSignal.timeout(5000)));
+      setError("");
+      setStationReady(false);
       setRetry(value => value + 1);
     } catch {
       setSession(null);
+      setStationReady(false);
       setError("Sign-out could not be confirmed. Reconnect to check the station session.");
     }
   }
 
-  if (session && (!session.required || session.username)) {
-    return <App account={session.username && session.role ? { name: session.username, role: session.role,
-      signOut: () => void signOut() } : undefined}/>;
-  }
-  return <main className="station-boot">
-    <section className="station-boot-inner">
-      <StationMark phase={error ? "attention" : !session || busy ? "checking" : "idle"}/>
-      <h1>{session?.required ? "Station sign-in" : "Checking station access"}</h1>
-      {error && <p role="alert">{error}</p>}
-      {session?.required ? <form className="form-stack" onSubmit={signIn}>
-        <label>Operator name<input required autoComplete="username" maxLength={64} value={username}
-          onChange={event => setUsername(event.target.value)}/></label>
-        <label>Password<input required type="password" autoComplete="current-password" maxLength={256}
-          value={password} onChange={event => setPassword(event.target.value)}/></label>
-        <div className="boot-actions"><button disabled={busy}>{busy ? "Signing in" : "Sign in"}</button></div>
-      </form> : error && <div className="boot-actions"><button type="button"
-        onClick={() => { setError(""); setRetry(value => value + 1); }}>Retry</button></div>}
-    </section>
-  </main>;
+  const authorized = session && (!session.required || session.username);
+  const splashReady = authorized ? stationReady : Boolean(session || error);
+
+  return <>
+    {showSplash && <BootSplash ready={splashReady} onComplete={finishSplash}/>}
+    {authorized ? <App showWorkspace={!showSplash} onInitialChecksComplete={markStationReady}
+      account={session.username && session.role ? { name: session.username, role: session.role,
+        signOut: () => void signOut() } : undefined}/>
+      : !showSplash && <main className="station-access">
+        <section className="station-access-card">
+          <StationMark phase={error ? "attention" : !session || busy ? "checking" : "idle"}/>
+          <h1>{session?.required ? "Station sign-in" : error ? "Station connection unavailable" : "Checking station access"}</h1>
+          {error && <p role="alert">{error}</p>}
+          {session?.required ? <form className="form-stack" onSubmit={signIn}>
+            <label>Operator name<input required autoComplete="username" maxLength={64} value={username}
+              onChange={event => setUsername(event.target.value)}/></label>
+            <label>Password<input required type="password" autoComplete="current-password" maxLength={256}
+              value={password} onChange={event => setPassword(event.target.value)}/></label>
+            <div className="boot-actions"><button disabled={busy}>{busy ? "Signing in" : "Sign in"}</button></div>
+          </form> : error && <div className="boot-actions"><button type="button"
+            onClick={() => { setError(""); setShowSplash(true); setRetry(value => value + 1); }}>Retry</button></div>}
+        </section>
+      </main>}
+  </>;
 }

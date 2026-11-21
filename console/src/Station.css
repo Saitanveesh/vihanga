@@ -272,7 +272,59 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
 .station-trend-controls > span { color: var(--station-muted); font: 10px var(--station-mono); }
 .station-trend-controls button[aria-pressed="true"] { border-color: var(--station-accent); color: var(--station-accent); }
 
-.station-boot {
+.station-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 54%, #122b3a 0%, #0a1520 30%, #04080e 70%);
+}
+.station-splash-scene {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  place-content: center;
+  padding: 20px;
+}
+.station-splash-wordmark {
+  margin: 0;
+  padding-inline-start: .16em;
+  font: 770 clamp(2rem, 11.5vw, 7.4rem)/1 var(--station-ui);
+  letter-spacing: .16em;
+  color: #e1f2fc;
+  background: linear-gradient(105deg, #d2e7f4 22%, #ffffff 47%, #8bdbf1 53%, #d2e7f4 78%);
+  background-size: 240% 100%;
+  background-position: 0% 50%;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 22px #79d5fd45);
+}
+.station-splash-orbit {
+  position: absolute;
+  inset-block-start: calc(100% + clamp(8px, 3vh, 26px));
+  inset-inline-start: 50%;
+  translate: -50% 0;
+  width: clamp(25px, 5vw, 40px);
+  aspect-ratio: 1;
+  border: 1px solid #41657866;
+  border-radius: 50%;
+}
+.station-splash-orbit span {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: conic-gradient(transparent 0deg 215deg, #77c6e845 265deg, #c0f0ff 342deg, transparent 353deg);
+  mask-image: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+}
+@media (prefers-reduced-motion: reduce) {
+  .station-splash-orbit { visibility: hidden; }
+}
+
+.station-access {
   display: grid;
   place-items: center;
   min-height: 100dvh;
@@ -286,7 +338,7 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
     radial-gradient(ellipse at 50% 5%,#172b3b,var(--station-base) 68%);
   background-size: 28px 28px,28px 28px,auto;
 }
-.station-boot-inner {
+.station-access-card {
   width: min(100%, 470px);
   background: #101923;
   border: 1px solid #344c5d;
@@ -340,37 +392,10 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
 .station-mark-name { display: grid; justify-items: center; gap: 5px; }
 .station-mark-name strong { font: 750 23px/1 var(--station-ui); letter-spacing: .18em; }
 .station-mark-name span { color: var(--mark-accent); font: 10px var(--station-mono); letter-spacing: .16em; }
-.station-boot h1 { margin: 8px 0 10px; font-size: clamp(21px,5vw,28px); line-height: 1.2; }
-.station-start-progress {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 12px;
-  font: 10px var(--station-mono);
-  color: var(--station-muted);
-}
-.station-start-progress progress { width: 100%; height: 5px; accent-color: var(--station-accent); }
+.station-access h1 { margin: 8px 0 10px; font-size: clamp(21px,5vw,28px); line-height: 1.2; }
 @media (prefers-reduced-motion: reduce) {
   .station-mark[data-phase="checking"] .station-emblem-scan { display: none; }
 }
-.boot-checks { list-style: none; margin: 0; padding: 0; }
-.boot-checks li {
-  display: grid;
-  grid-template-columns: 11px minmax(0,1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 0;
-  border-top: 1px solid var(--station-line);
-  color: var(--station-muted);
-}
-.boot-checks strong { display: block; font-size: 13px; color: var(--station-text); }
-.boot-checks small { display: block; font-size: 11px; margin-top: 3px; }
-.boot-checks li > span:last-child { font: 10px var(--station-mono); }
-.boot-indicator { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.boot-checks [data-state="ready"] { color: var(--station-live); }
-.boot-checks [data-state="failed"] { color: var(--station-fault); }
-.boot-checks small { color: var(--station-muted); }
 .boot-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .boot-actions button {
   padding: 8px 12px;
@@ -381,7 +406,6 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
   font-size: 12px;
   font-weight: 650;
 }
-.boot-actions .boot-secondary { background: #172731; border-color: #455e6d; }
 .boot-actions button:hover { background: #285e6d; }
 
 @media(max-width: 890px) {

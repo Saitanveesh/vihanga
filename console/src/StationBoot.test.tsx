@@ -1,20 +1,29 @@
-import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import StationBoot, { useStationBoot, type BootData } from "./StationBoot";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import BootSplash from "./BootSplash";
+import { useStationBoot, type BootData } from "./StationBoot";
 import { getHealth, getMissions, getVehicles } from "./api";
 
 vi.mock("./api", () => ({ getHealth: vi.fn(), getVehicles: vi.fn(), getMissions: vi.fn() }));
 
+const initialAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
+
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.resetAllMocks();
+  if (initialAnimate) Object.defineProperty(HTMLElement.prototype, "animate", initialAnimate);
+  else Reflect.deleteProperty(HTMLElement.prototype, "animate");
 });
 
 function Harness({ result }: { result: (value: BootData) => void }) {
-  const apply = useCallback((value: BootData) => result(value), [result]);
-  const boot = useStationBoot(apply);
-  return boot.dismissed ? <h1>Flight monitoring</h1> : <StationBoot {...boot}/>;
+  const boot = useStationBoot(result);
+  if (!boot.initialized) return null;
+  return <>
+    <h1>Flight monitoring</h1>
+    {!boot.ready && <button disabled={!boot.finished} onClick={boot.retry}>Retry startup checks</button>}
+  </>;
 }
 
 const health = {
@@ -22,61 +31,77 @@ const health = {
   physical_flight_control: false, live_vehicle_stream: false
 };
 
-describe("station startup", () => {
-  it("reports all three checks before opening the operator workspace", async () => {
+describe("station splash", () => {
+  it("displays only the wordmark and hands off automatically after the reveal", () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn();
+    const animate = vi.fn(() => ({ cancel }));
+    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+    const complete = vi.fn();
+    const view = render(<BootSplash ready={false} onComplete={complete}/>);
+    expect(screen.getByRole("heading", { name: "VIHANGA" })).toBeTruthy();
+    expect(view.container.textContent).toBe("VIHANGA");
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(animate).toHaveBeenCalledTimes(3);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(complete).not.toHaveBeenCalled();
+
+    view.rerender(<BootSplash ready onComplete={complete}/>);
+    expect(animate).toHaveBeenCalledTimes(5);
+    act(() => vi.advanceTimersByTime(400));
+    expect(complete).toHaveBeenCalledOnce();
+    view.unmount();
+    expect(cancel).toHaveBeenCalledTimes(5);
+  });
+
+  it("stops active animations and hands off immediately when motion is reduced", () => {
+    const cancel = vi.fn();
+    const animate = vi.fn(() => ({ cancel }));
+    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+    let change: (() => void) | undefined;
+    const preference = {
+      matches: false,
+      addEventListener: vi.fn((_event: string, callback: () => void) => { change = callback; }),
+      removeEventListener: vi.fn()
+    };
+    vi.stubGlobal("matchMedia", () => preference);
+    const complete = vi.fn();
+    const view = render(<BootSplash ready onComplete={complete}/>);
+    expect(complete).not.toHaveBeenCalled();
+    preference.matches = true;
+    act(() => change?.());
+    expect(cancel).toHaveBeenCalledTimes(3);
+    expect(complete).toHaveBeenCalledOnce();
+
+    view.unmount();
+    expect(preference.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
+  });
+});
+
+describe("station startup checks", () => {
+  it("automatically opens the workspace after loading startup data", async () => {
     const result = vi.fn();
     vi.mocked(getHealth).mockResolvedValue(health);
     vi.mocked(getVehicles).mockResolvedValue([]);
     vi.mocked(getMissions).mockResolvedValue([]);
     render(<Harness result={result}/>);
-    const open = await screen.findByRole("button", { name: "Open ground station" });
-    expect(screen.getByRole("progressbar", { name: "Startup checks completed" }).getAttribute("value")).toBe("3");
-    expect(open.closest("section")?.querySelector(".station-mark")?.getAttribute("data-phase")).toBe("ready");
-    fireEvent.click(open);
-    expect(screen.getByRole("heading", { name: "Flight monitoring" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Flight monitoring" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry startup checks" })).toBeNull();
     expect(result).toHaveBeenCalledWith({ health, vehicles: [], missions: [] });
   });
 
-  it("starts the logo motion during checks, then cleans it up if reduced motion is enabled", async () => {
-    const cancel = vi.fn();
-    const animate = vi.fn(() => ({ cancel }));
-    const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
-    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
-    let change: (() => void) | undefined;
-    const preference = {
-      matches: false,
-      addEventListener: vi.fn((_event, callback: () => void) => { change = callback; }),
-      removeEventListener: vi.fn()
-    };
-    vi.stubGlobal("matchMedia", () => preference);
-    try {
-      vi.mocked(getHealth).mockImplementation(() => new Promise(() => {}));
-      const view = render(<Harness result={vi.fn()}/>);
-      expect(animate).toHaveBeenCalledTimes(2);
-      preference.matches = true;
-      change?.();
-      expect(cancel).toHaveBeenCalledTimes(2);
-      expect(animate).toHaveBeenCalledTimes(2);
-      view.unmount();
-      expect(preference.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
-    } finally {
-      if (originalAnimate) Object.defineProperty(HTMLElement.prototype, "animate", originalAnimate);
-      else Reflect.deleteProperty(HTMLElement.prototype, "animate");
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("can retry a recovered API without refreshing the page", async () => {
+  it("can retry a recovered API without blocking the workspace", async () => {
+    const result = vi.fn();
     vi.mocked(getHealth).mockRejectedValueOnce(new Error("offline")).mockResolvedValue(health);
     vi.mocked(getVehicles).mockResolvedValue([]);
     vi.mocked(getMissions).mockResolvedValue([]);
-    render(<Harness result={vi.fn()}/>);
-    const retry = await screen.findByRole("button", { name: "Retry checks" });
-    expect(screen.getAllByText("UNAVAILABLE")).toHaveLength(3);
-    expect(retry.closest("section")?.querySelector(".station-mark")?.getAttribute("data-phase")).toBe("attention");
+    render(<Harness result={result}/>);
+    const retry = await screen.findByRole("button", { name: "Retry startup checks" });
     expect(getVehicles).not.toHaveBeenCalled();
-    fireEvent.click(retry);
-    expect(await screen.findByRole("button", { name: "Open ground station" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Flight monitoring" })).toBeTruthy();
+    await act(async () => fireEvent.click(retry));
+    expect(screen.queryByRole("button", { name: "Retry startup checks" })).toBeNull();
+    expect(result).toHaveBeenLastCalledWith({ health, vehicles: [], missions: [] });
   });
 
   it("loads the aircraft directory when only mission storage fails", async () => {
@@ -85,8 +110,7 @@ describe("station startup", () => {
     vi.mocked(getVehicles).mockResolvedValue([]);
     vi.mocked(getMissions).mockRejectedValue(new Error("unavailable"));
     render(<Harness result={result}/>);
-    expect(await screen.findByRole("button", { name: "Open workspace" })).toBeTruthy();
-    expect(screen.getAllByText("READY")).toHaveLength(2);
+    expect(await screen.findByRole("button", { name: "Retry startup checks" })).toBeTruthy();
     expect(result).toHaveBeenCalledWith({ health, vehicles: [] });
   });
 });

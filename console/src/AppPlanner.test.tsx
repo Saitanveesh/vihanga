@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import App from "./App";
+import StationAccess from "./StationAccess";
 import { getHealth, getMissions, getVehicles, previewCircularSurvey, type SurveyPreview } from "./api";
 import type { MapPoint } from "./GeoMap";
 
@@ -20,21 +20,31 @@ vi.mock("./GeoMap", () => ({
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  vi.unstubAllGlobals();
 });
 
 it("discards a circular result when the user clears its boundary while it is loading", async () => {
-  vi.mocked(getHealth).mockResolvedValue({
-    service: "vihanga-standalone", status: "ok", deployment: "LOCAL_STATION",
-    physical_flight_control: false, live_vehicle_stream: false
-  });
+  vi.stubGlobal("fetch", vi.fn(async () =>
+    Response.json({ required: false, username: null, role: null })
+  ));
+  let resolveHealth!: (value: Awaited<ReturnType<typeof getHealth>>) => void;
+  vi.mocked(getHealth).mockImplementation(() => new Promise(resolve => { resolveHealth = resolve; }));
   vi.mocked(getVehicles).mockResolvedValue([]);
   vi.mocked(getMissions).mockResolvedValue([]);
   let resolvePreview!: (value: SurveyPreview) => void;
   vi.mocked(previewCircularSurvey).mockImplementation(() => new Promise(resolve => { resolvePreview = resolve; }));
 
-  render(<App/>);
-  fireEvent.click(await screen.findByRole("button", { name: "Open ground station" }));
-  fireEvent.click(screen.getByRole("button", { name: /^plan$/i }));
+  render(<StationAccess/>);
+  const splash = screen.getByRole("heading", { name: "VIHANGA" });
+  await act(async () => {});
+  expect(screen.getByRole("heading", { name: "VIHANGA" })).toBe(splash);
+  expect(screen.queryByRole("navigation", { name: "Workspaces" })).toBeNull();
+  await act(async () => resolveHealth({
+    service: "vihanga-standalone", status: "ok", deployment: "LOCAL_STATION",
+    physical_flight_control: false, live_vehicle_stream: false
+  }));
+  fireEvent.click(await screen.findByRole("button", { name: /^plan$/i }));
+  expect(screen.queryByRole("heading", { name: "VIHANGA" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Circular" }));
   fireEvent.click(screen.getByRole("button", { name: "Draw boundary" }));
   const map = await screen.findByRole("button", { name: "Map test target (0 points)" });
