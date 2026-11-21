@@ -79,6 +79,12 @@ export interface Telemetry {
   gps2_fix_type: number | null;
   gps2_satellites: number | null;
   battery_current_a: number | null;
+  /** FC-reported RC receiver input; not a GCS backup transport. */
+  rc_input_status?: "NOT_REPORTED" | "CHANNELS_REPORTED" | "FC_HEALTHY" | "FC_FAULT" | "FC_DISABLED" | "FC_ABSENT";
+  rc_channels_fresh?: boolean;
+  rc_channel_count?: number | null;
+  rc_rssi_raw?: number | null;
+  rc_message_type?: "RC_CHANNELS" | "RC_CHANNELS_RAW" | null;
   radio_rssi_raw?: number | null;
   radio_remote_rssi_raw?: number | null;
   radio_noise_raw?: number | null;
