@@ -1,0 +1,87 @@
+/* Persistent, data-backed communications watch; independent of map controls. */
+.network-watch {
+  position:absolute;z-index:5;right:18px;bottom:43px;
+  width:min(374px,calc(100% - 30px));border:1px solid #556f7d;
+  border-radius:7px;background:#16232def;color:#e8f1f5;
+  box-shadow:0 10px 26px #0611189a;
+  font-family:"Segoe UI",Arial,sans-serif;overflow:hidden;
+}
+.network-watch-top {
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  width:100%;background:#1c2c37;border:0;padding:9px 11px;
+  cursor:pointer;color:#e4eef4;text-align:left;
+}
+.network-watch-top:hover {background:#273b49}
+.network-watch-name {
+  display:inline-flex;align-items:center;gap:6px;
+  color:#bed3df;font-size:9px;letter-spacing:.8px;font-weight:800;
+}
+.network-watch-indicator {
+  display:inline-flex;align-items:center;gap:5px;
+  color:#a9c3d0;font-size:10px;font-weight:700;white-space:nowrap;
+}
+.network-watch-indicator::before{
+  content:"";width:6px;height:6px;border-radius:50%;background:#8b9ca4;
+}
+.network-watch-indicator.ok::before{background:#65bc99}
+.network-watch-indicator.warn::before{background:#eab86e}
+.network-watch-indicator.down::before{background:#e27f74}
+.network-watch-alert-count{
+  border-radius:3px;padding:2px 5px;font-size:9px;background:#564035;
+  color:#f3c8a1;font-weight:800;
+}
+.network-watch-caret{margin-left:auto;color:#c3d4df;font-size:16px}
+.network-watch-details {
+  padding:0 12px 10px;max-height:min(420px,60vh);overflow-y:auto;
+  scrollbar-color:#527185 #20323f;scrollbar-width:thin;
+}
+.network-watch-block {padding:12px 0;border-top:1px solid #39505e}
+.network-watch-block>div:first-child{
+  display:flex;justify-content:space-between;align-items:center;
+  gap:10px;margin-bottom:8px;
+}
+.network-watch-block strong {font-size:10px;letter-spacing:.8px;color:#c7dbe5}
+.network-watch-block small {font-size:10px;font-weight:800;color:#b7c8d3}
+.network-watch-block small.ok{color:#77d9b0}
+.network-watch-block small.warn{color:#f1c282}
+.network-watch-block small.down{color:#f3a09a}
+.network-watch-block dl{display:grid;gap:6px;margin:0}
+.network-watch-block dl>div{
+  display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  font-size:11px;line-height:1.35;
+}
+.network-watch-block dt{color:#aabfcc}
+.network-watch-block dd{margin:0;color:#f0f5f7;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.network-watch-block p{color:#aabfcc;font-size:10px;line-height:1.45;margin:9px 0 0}
+.network-watch-trend{
+  height:33px;display:flex;align-items:flex-end;gap:3px;
+  border-bottom:1px solid #516a78;margin-top:10px;
+}
+.network-watch-trend span{flex:1;max-width:18px;background:#6eafc8;border-radius:2px 2px 0 0}
+.network-watch-trend span.slow{background:#dd9e70}
+.network-watch-events{padding:11px 0;border-top:1px solid #39505e}
+.network-watch-events-head{display:flex;align-items:center;justify-content:space-between}
+.network-watch-events-head strong{font-size:10px;letter-spacing:.7px}
+.network-watch-events-head button{font-size:10px;color:#cbdde7;border:1px solid #516c7c;
+  border-radius:4px;background:#2b4555;padding:4px 8px}
+.network-watch-events ul{list-style:none;margin:9px 0 0;padding:0;display:grid;gap:5px}
+.network-watch-events li{font-size:10px;color:#c0d0d9;line-height:1.5}
+.network-watch-events li.warn{color:#f2c28a}
+.network-watch-events li.down{color:#f1a49a}
+.network-watch-events li time{font-variant-numeric:tabular-nums;color:#8faab9;margin-right:9px}
+.network-watch-disclaimer{
+  font-size:10px;line-height:1.5;color:#9db3c0;margin:0;
+  padding:10px 0 1px;border-top:1px solid #39505e
+}
+.network-watch-sr-status{position:absolute;width:1px;height:1px;
+  padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:1050px){
+  .network-watch{right:12px;bottom:37px;width:min(350px,calc(100% - 24px))}
+}
+@media(max-width:650px){
+  .network-watch{right:8px;bottom:33px;width:min(326px,calc(100% - 16px))}
+  .network-watch-top{gap:5px;padding:7px 8px}
+  .network-watch-name{font-size:8px}
+  .network-watch-indicator{font-size:9px}
+}
+@media(prefers-reduced-motion:reduce){.network-watch *{transition:none!important}}
