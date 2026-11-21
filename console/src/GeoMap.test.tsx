@@ -203,6 +203,8 @@ describe("geographic map visual geometry regression", () => {
     const view = render(<GeoMap {...props}/>);
     expect(stats.fitPaddingLeft).toBe(380);
     view.rerender(<GeoMap {...props} fitLeftPadding={76}/>);
+    expect(stats.fitPaddingLeft).toBe(380);
+    view.rerender(<GeoMap {...props} fitSignal={2} fitLeftPadding={76}/>);
     expect(stats.fitPaddingLeft).toBe(76);
   });
 });

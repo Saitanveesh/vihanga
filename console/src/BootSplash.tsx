@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 const reducedMotion = "(prefers-reduced-motion: reduce)";
-const revealDuration = 950;
-const displayDuration = 1150;
-const exitDuration = 240;
+const revealDuration = 1500;
+const displayDuration = revealDuration + 300;
+const exitDuration = 800;
 
 function canAnimate(preference = window.matchMedia?.(reducedMotion)) {
   return typeof Element.prototype.animate === "function" && !preference?.matches;

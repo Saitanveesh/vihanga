@@ -452,9 +452,9 @@ export default function App({ account, onInitialChecksComplete }: {
   function clearBoundary() {
     setPolygon([]);
     if (survey) clearPreview();
-    else previewRevision.current += 1;
     setSelectedWaypoint(null);
-    notify("Survey boundary cleared.");
+    startDrawing("POLYGON");
+    notify("Click the map to start the next boundary.");
   }
 
   function resetPlanner() {
@@ -462,14 +462,14 @@ export default function App({ account, onInitialChecksComplete }: {
     setManual([]);
     clearPreview();
     setOpenedMission(null);
-    setDrawMode("NONE");
+    startDrawing("POLYGON");
     setPattern("PARALLEL");
     setSpacing(20);
     setBearing(0);
     setAltitude(35);
     setSpeed(5);
     setMissionTitle("");
-    notify("Planner reset. Saved mission records were not deleted.");
+    notify("Planner reset. Click the map to start a boundary.");
   }
 
   function undoPlannerPoint() {

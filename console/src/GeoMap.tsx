@@ -129,6 +129,7 @@ export default function GeoMap({
   const mount = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const currentBasemap = useRef(basemap);
+  const lastFit = useRef(0);
   const callback = useRef(onMapClick);
   const vertexCallback = useRef(onVertexMove);
   const waypointCallback = useRef(onWaypointSelect);
@@ -344,7 +345,8 @@ export default function GeoMap({
   useEffect(() => {
     const map = mapRef.current;
     const points = [...geometryRef.current.polygon, ...geometryRef.current.route];
-    if (!map || fitSignal <= 0 || points.length === 0) return;
+    if (!map || fitSignal <= 0 || fitSignal === lastFit.current || points.length === 0) return;
+    lastFit.current = fitSignal;
     const bounds = new maplibregl.LngLatBounds();
     points.forEach(p => bounds.extend([p.longitude,p.latitude]));
     if (points.length === 1) {

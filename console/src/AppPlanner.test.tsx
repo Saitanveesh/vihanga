@@ -12,7 +12,7 @@ vi.mock("./NetworkWatch", () => ({ default: () => null }));
 vi.mock("./GeoMap", () => ({
   default: ({ polygon, route, onMapClick }: {
     polygon: MapPoint[]; route: MapPoint[]; onMapClick: (point: MapPoint) => void
-  }) => <button onClick={() => onMapClick({ latitude: 12 + polygon.length / 1000, longitude: 77 })}>
+  }) => <button data-vertices={polygon.length} onClick={() => onMapClick({ latitude: 12 + polygon.length / 1000, longitude: 77 })}>
     Map test target ({route.length} points)
   </button>
 }));
@@ -71,4 +71,34 @@ it("discards a circular result when the user clears its boundary while it is loa
   fireEvent.click(screen.getByRole("button", { name: "Finish" }));
   fireEvent.click(map);
   expect(screen.getByRole("button", { name: "Map test target (2 points)" })).toBeTruthy();
+});
+
+it.each(["Clear boundary", "Reset"])("accepts a second survey immediately after %s", async clearAction => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ required: false, username: null, role: null })));
+  vi.mocked(getHealth).mockResolvedValue({
+    service: "vihanga-standalone", status: "ok", deployment: "LOCAL_STATION",
+    physical_flight_control: false, live_vehicle_stream: false
+  });
+  vi.mocked(getVehicles).mockResolvedValue([]);
+  vi.mocked(getMissions).mockResolvedValue([]);
+  vi.mocked(previewCircularSurvey).mockResolvedValue({
+    pattern: "CIRCULAR", waypoints: [{ latitude: 12, longitude: 77, altitude_m: 40 }],
+    polygon: [], lane_count: 1, area_m2: 5, route_distance_m: 1, estimated_duration_s: 1,
+    requires_route_review: true, status: "PREVIEW_ONLY"
+  });
+  render(<StationAccess/>);
+  fireEvent.click(await screen.findByRole("button", { name: /^plan$/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Circular" }));
+  fireEvent.click(screen.getByRole("button", { name: "Survey" }));
+  const map = await screen.findByRole("button", { name: /Map test target/ });
+  for (let i = 0; i < 3; i++) fireEvent.click(map);
+  fireEvent.click(screen.getByRole("button", { name: "Generate coverage route" }));
+  await screen.findByRole("button", { name: "Map test target (1 points)" });
+  fireEvent.click(screen.getByRole("button", { name: clearAction }));
+  expect(map.getAttribute("data-vertices")).toBe("0");
+  for (let i = 1; i <= 3; i++) {
+    fireEvent.click(map);
+    expect(map.getAttribute("data-vertices")).toBe(String(i));
+  }
+  expect((screen.getByRole("button", { name: "Generate coverage route" }) as HTMLButtonElement).disabled).toBe(false);
 });

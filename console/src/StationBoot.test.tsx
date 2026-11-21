@@ -51,7 +51,9 @@ describe("station splash", () => {
     view.rerender(<BootSplash ready onComplete={complete}/>);
     expect(animate).toHaveBeenCalledTimes(3);
     expect(animate).toHaveBeenLastCalledWith([{ backgroundColor: "#000" }, { backgroundColor: "transparent" }], expect.any(Object));
-    act(() => vi.advanceTimersByTime(400));
+    act(() => vi.advanceTimersByTime(799));
+    expect(complete).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
     expect(complete).toHaveBeenCalledOnce();
     view.unmount();
     expect(cancel).toHaveBeenCalledTimes(3);
