@@ -236,10 +236,13 @@ export default function GeoMap({
     map.on("load", resize);
     const firstFrame = window.requestAnimationFrame?.(resize);
     const secondFrame = window.setTimeout(resize, 160);
+    let handledVertexPress = false;
+    map.on("mousedown", () => { handledVertexPress = false; });
     map.on("mousedown", "boundary-handles", event => {
       if (!editBoundaryRef.current || !event.features?.length) return;
       const record = event.features[0].properties;
       if (record?.kind !== "vertex" || !Number.isInteger(Number(record.index))) return;
+      handledVertexPress = true;
       movingVertex.current = Number(record.index) - 1;
       map.dragPan.disable();
       event.preventDefault();
@@ -261,6 +264,10 @@ export default function GeoMap({
     map.on("mouseup", release);
     map.on("mouseout", release);
     map.on("click", event => {
+      if (handledVertexPress) {
+        handledVertexPress = false;
+        return;
+      }
       if (event.originalEvent.defaultPrevented || movingVertex.current !== null) return;
       if (!editBoundaryRef.current && waypointCallback.current) {
         const layers = WAYPOINT_LAYERS.filter(id => map.getLayer(id));

@@ -8,6 +8,8 @@ const stats = vi.hoisted(() => ({
   data: null as ReturnType<typeof buildGeometry> | null,
   click: null as (() => void) | null,
   drag: null as (() => void) | null, centers: [] as [number, number][],
+  pressVertex: null as ((event: object) => void) | null,
+  release: null as (() => void) | null,
   hit: undefined as number | undefined
 }));
 vi.mock("maplibre-gl", () => {
@@ -15,7 +17,12 @@ vi.mock("maplibre-gl", () => {
     source: { setData: (data: ReturnType<typeof buildGeometry>) => void } | null = null;
     dragPan = { disable: () => undefined, enable: () => undefined };
     addControl() {}
-    on(event: string, handler: () => void) {
+    on(event: string, handler: (() => void) | string, delegated?: (event: object) => void) {
+      if (typeof handler === "string") {
+        if (handler === "boundary-handles" && delegated) stats.pressVertex = delegated;
+        return;
+      }
+      if (event === "mouseup") stats.release = handler;
       if (event === "click") stats.click = handler;
       if (event === "dragstart") stats.drag = handler;
     }
@@ -158,6 +165,13 @@ describe("geographic map visual geometry regression", () => {
     click(point);
     expect(props.onMapClick).toHaveBeenCalledWith(origin);
     expect(stats.data?.features.find(f => f.properties.selected)?.properties.index).toBe(2);
+    props.onMapClick.mockClear();
+    stats.pressVertex?.({ features: [{ properties: { kind: "vertex", index: 1 } }], preventDefault() {} });
+    stats.release?.();
+    click(point);
+    expect(props.onMapClick).not.toHaveBeenCalled();
+    click(point);
+    expect(props.onMapClick).toHaveBeenCalledOnce();
   });
 
   it("follows fresh positions and reports a manual drag", () => {
