@@ -37,13 +37,13 @@ interface Props {
 
 const methods: { id: ConnectionMethod; label: string; description: string;
   icon: "link" | "activity" | "database" | "radio" | "shield" }[] = [
-  { id: "SERIAL", label: "Server USB", description: "API computer", icon: "link" },
+  { id: "CLOUD", label: "Private relay", description: "Oracle operator relay", icon: "shield" },
   { id: "BROWSER_USB", label: "This PC USB", description: "Local telemetry", icon: "radio" },
+  { id: "LAN", label: "Direct Wi-Fi", description: "Private Pi LAN", icon: "radio" },
+  { id: "BROKER", label: "Vihanga Cloud", description: "Separate cloud broker", icon: "radio" },
+  { id: "SERIAL", label: "Server USB", description: "API computer", icon: "link" },
   { id: "UDP", label: "UDP", description: "Local listener", icon: "activity" },
   { id: "TCP", label: "TCP", description: "Local client", icon: "database" },
-  { id: "LAN", label: "Direct Wi-Fi", description: "Private Pi LAN", icon: "radio" },
-  { id: "BROKER", label: "Vihanga Cloud", description: "Cloud broker", icon: "radio" },
-  { id: "CLOUD", label: "Private relay", description: "Operator relay", icon: "shield" },
 ];
 
 function storedOrigin(method: ConnectionMethod): string {
@@ -254,7 +254,7 @@ export default function ConnectionSettings({
         </div>
 
         <div className="connection-settings-section">
-          <span className="connection-settings-label">CONFIGURE RECEIVER</span>
+          <span className="connection-settings-label">RECEIVER</span>
           <div className="connection-role-switch" role="group" aria-label="Receiver assignment">
             {(["PRIMARY", "BACKUP"] as const).map(item =>
               <button type="button" key={item} onClick={() => {
@@ -381,8 +381,11 @@ export default function ConnectionSettings({
                 placeholder="Enter aircraft-scoped token"
                 onChange={event => setViewerToken(event.target.value)}/></label>}
             </>}
-            <label>FC MAVLink system ID<input type="number" required min={1} max={254}
-              value={systemId} onChange={event => setSystemId(Number(event.target.value))}/></label>
+            <details className="connection-advanced-settings">
+              <summary>FC MAVLink system ID: {systemId}</summary>
+              <label>FC MAVLink system ID<input type="number" required min={1} max={254}
+                value={systemId} onChange={event => setSystemId(Number(event.target.value))}/></label>
+            </details>
             {method === "LAN" && <p className="connection-inline-note">
               Requires a trusted Pi HTTPS connection on the local network.
             </p>}
