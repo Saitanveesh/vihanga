@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import GeoMap, { type MapPoint } from "./GeoMap";
 import FlightInstruments from "./FlightInstruments";
 import OperationsPanel from "./OperationsPanel";
 import ControlPanel from "./ControlPanel";
 import NetworkWatch from "./NetworkWatch";
+import { BrowserSerialReceiver } from "./BrowserSerial";
 import ConnectionSettings, { type ConnectionRequest, type ConnectionRole } from "./ConnectionSettings";
 import UiIcon, { type IconName } from "./UiIcon";
 import {
@@ -99,6 +100,29 @@ export default function App() {
   const [parameterReadback, setParameterReadback] = useState<ParameterReadback | null>(null);
   const [connectionRole, setConnectionRole] = useState<ConnectionRole>("PRIMARY");
   const [connectionError, setConnectionError] = useState("");
+  const browserSerialRef = useRef<BrowserSerialReceiver | null>(null);
+  const [browserSerialAircraft, setBrowserSerialAircraft] = useState("");
+  const [browserSerialSample, setBrowserSerialSample] = useState<Telemetry | null>(null);
+  const [browserSerialSelected, setBrowserSerialSelected] = useState(false);
+  const [browserAutoSelect, setBrowserAutoSelect] = useState(false);
+  useEffect(() => () => { void browserSerialRef.current?.stop(); }, []);
+  useEffect(() => {
+    if (browserSerialAircraft && selected && browserSerialAircraft !== selected) {
+      void browserSerialRef.current?.stop();
+      browserSerialRef.current = null;
+      setBrowserSerialAircraft("");
+      setBrowserSerialSample(null);
+      setBrowserSerialSelected(false);
+    }
+  }, [selected, browserSerialAircraft]);
+  useEffect(() => {
+    if (browserAutoSelect && browserSerialAircraft === selected &&
+        browserSerialSample?.status === "LIVE") {
+      setBrowserSerialSelected(true);
+      setBrowserAutoSelect(false);
+      setObservedTrack([]);
+    }
+  }, [browserAutoSelect, browserSerialAircraft, selected, browserSerialSample?.status]);
 
   const [cameraInput, setCameraInput] = useState("");
   const [cameraPages, setCameraPages] = useState<Record<string, string>>(restoredCameras);
@@ -192,7 +216,22 @@ export default function App() {
   }, [selected]);
 
   const active = vehicles.find(v => v.vehicle_id === selected);
-  const sample = readings[selected];
+  const primarySample = readings[selected];
+  const localBrowserSample = browserSerialAircraft === selected ? browserSerialSample : null;
+  const sample = localBrowserSample && browserSerialSelected
+    ? {...localBrowserSample,
+       active_source:"BACKUP" as const,
+       primary_status:primarySample?.status || "OFFLINE",
+       primary_transport:primarySample?.transport || null}
+    : primarySample && localBrowserSample
+    ? {...primarySample,
+       backup_status:localBrowserSample.status,
+       backup_transport:"BROWSER_SERIAL_READ_ONLY",
+       backup_heartbeat_fresh:localBrowserSample.heartbeat_fresh,
+       backup_attitude_fresh:localBrowserSample.attitude_fresh,
+       backup_frame_rate_5s_hz:localBrowserSample.frame_rate_5s_hz,
+       backup_age_ms:localBrowserSample.age_ms}
+    : primarySample;
   useEffect(() => {
     if (!selected) {
       setOperatorCatalog(null);
@@ -406,6 +445,50 @@ export default function App() {
     setConnectOpen(true);
   }
 
+  async function connectBrowserRadio(baud: number, systemId: number,
+                                      useGranted = false) {
+    if (!selected) {
+      setConnectionError("Select an aircraft before connecting a browser radio.");
+      return;
+    }
+    if (browserSerialRef.current) {
+      setConnectionError("Browser radio already connected. Remove it before replacing the port.");
+      return;
+    }
+    const receiver = new BrowserSerialReceiver();
+    browserSerialRef.current = receiver;
+    setBusy(true);
+    setConnectionError("");
+    try {
+      // Browser requestPort is invoked directly from the user gesture here.
+      await receiver.connect(selected, systemId, baud, sample => {
+        setBrowserSerialSample(sample);
+      }, error => setConnectionError(error), useGranted);
+      setBrowserSerialAircraft(selected);
+      setBrowserAutoSelect(true);
+      setConnectOpen(false);
+      notify("Windows USB radio opened in Chrome. Waiting for CRC-valid FC heartbeat and attitude before using it as standby.");
+    } catch (error) {
+      setConnectionError(error instanceof Error ? error.message : "Browser USB connection failed.");
+      await receiver.stop();
+      if (browserSerialRef.current === receiver) browserSerialRef.current = null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeBrowserRadio() {
+    const radio = browserSerialRef.current;
+    browserSerialRef.current = null;
+    setBrowserSerialSelected(false);
+    setBrowserAutoSelect(false);
+    setBrowserSerialAircraft("");
+    setBrowserSerialSample(null);
+    await radio?.stop();
+    setObservedTrack([]);
+    notify("Local browser USB backup disconnected.");
+  }
+
   async function startLink(settings: ConnectionRequest) {
     if (!selected) {
       setConnectionError("Register and select an aircraft before connecting.");
@@ -451,6 +534,16 @@ export default function App() {
   }
   async function chooseSource(role: "PRIMARY" | "BACKUP") {
     if (!selected) return;
+    if (browserSerialAircraft === selected && browserSerialSample) {
+      if (role === "BACKUP" && browserSerialSample.status !== "LIVE") {
+        fail(new Error("Browser USB backup needs fresh FC heartbeat and attitude."));
+        return;
+      }
+      setBrowserSerialSelected(role === "BACKUP");
+      setObservedTrack([]);
+      notify(role === "BACKUP" ? "Local browser USB backup selected." : "Cloud primary selected.");
+      return;
+    }
     setBusy(true);
     try {
       const result = await activateTelemetrySource(selected, role);
@@ -461,6 +554,7 @@ export default function App() {
   }
   async function stopBackupLink() {
     if (!selected) return;
+    if (browserSerialAircraft === selected) { await removeBrowserRadio(); return; }
     setBusy(true);
     try {
       const result = await disconnectBackup(selected);
@@ -471,6 +565,7 @@ export default function App() {
   }
   async function stopLink() {
     if (!selected) return;
+    if (browserSerialAircraft === selected) await removeBrowserRadio();
     setBusy(true);
     try {
       const result = await disconnectLink(selected);
@@ -901,6 +996,7 @@ export default function App() {
         busy={busy}
         error={connectionError}
         onConnect={startLink}
+        onConnectBrowserSerial={connectBrowserRadio}
         onActivate={chooseSource}
         onRemoveBackup={stopBackupLink}
         onDisconnect={stopLink}
