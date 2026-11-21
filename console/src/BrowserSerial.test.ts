@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { BrowserMavlinkState, MavlinkStream, mavlinkX25 } from "./BrowserSerial";
 
 const extra: Record<number, number> = {0:50,30:39,65:118,253:83};
