@@ -830,9 +830,10 @@ export default function App() {
           </section>}
           <div className={"ops-signal-strip" + (diagnosticsOpen ? " drawer-open" : "")}
             aria-label="Aircraft link summary">
-            <div className={"ops-signal-item " + (sample?.heartbeat_fresh ? "healthy" : "fault")}>
-              <UiIcon name="radio" size={15}/>
-              <span>FC</span><strong>{sample?.heartbeat_fresh ? "FRESH" : "NO DATA"}</strong>
+            <div className={"ops-signal-item " + (sample?.heartbeat_fresh ? "healthy" : "fault")}
+              title="Flight-controller heartbeat only. Does not measure handheld RC signal or radio failover.">
+              <UiIcon name="activity" size={15}/>
+              <span>FC HEARTBEAT</span><strong>{sample?.heartbeat_fresh ? "LIVE" : "STALE"}</strong>
             </div>
             <div className={"ops-signal-item " +
               (sample?.gps_fix_type != null && sample.gps_fix_type >= 3 ? "healthy" : "caution")}>
@@ -840,13 +841,13 @@ export default function App() {
               <span>GPS</span><strong>{sample?.gps_fix_type == null ? "—" : "FIX " + sample.gps_fix_type}</strong>
             </div>
             <div className={"ops-signal-item " +
-              (sample?.rc_input_status === "CHANNELS_REPORTED" || sample?.rc_input_status === "FC_HEALTHY"
-                ? "healthy" : sample?.rc_input_status === "FC_FAULT" ? "fault" : "")}
-              title="RC receiver report from Pixhawk; independent of the GCS telemetry backup">
+              (sample?.rc_input_status === "FAILSAFE" || sample?.rc_input_status === "FC_FAULT"
+                ? "fault" : "caution")}
+              title="RC RF presence is not verified by a Pixhawk heartbeat or static channel PWM. Click Link & sensors for FC evidence.">
               <UiIcon name="radio" size={15}/>
-              <span>RC</span><strong>{sample?.rc_input_status === "CHANNELS_REPORTED" ? "INPUT" :
-                sample?.rc_input_status === "FC_HEALTHY" ? "FC OK" :
-                sample?.rc_input_status === "FC_FAULT" ? "FAULT" : "—"}</strong>
+              <span>RC RADIO</span><strong>{sample?.rc_input_status === "FAILSAFE" ? "FAILSAFE" :
+                sample?.rc_input_status === "FC_FAULT" ? "FAULT" :
+                sample?.rc_input_status === "CHANNELS_REPORTED" ? "DATA ONLY" : "UNVERIFIED"}</strong>
             </div>
             <button type="button" className="ops-summary-button"
               aria-label={diagnosticsOpen ? "Close link and sensors panel" : "Open link and sensors panel"}
