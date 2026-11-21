@@ -32,17 +32,18 @@ interface Props {
   onRemoveBackup: () => Promise<void>;
   onDisconnect: () => Promise<void>;
   onClose: () => void;
+  onClearError?: () => void;
 }
 
 const methods: { id: ConnectionMethod; label: string; description: string;
   icon: "link" | "activity" | "database" | "radio" | "shield" }[] = [
-  { id: "SERIAL", label: "Server USB", description: "GCS API host", icon: "link" },
-  { id: "BROWSER_USB", label: "This PC USB", description: "Chrome / COM6", icon: "radio" },
+  { id: "CLOUD", label: "Private relay", description: "Oracle operator relay", icon: "shield" },
+  { id: "BROWSER_USB", label: "This PC USB", description: "Local telemetry", icon: "radio" },
+  { id: "LAN", label: "Direct Wi-Fi", description: "Private Pi LAN", icon: "radio" },
+  { id: "BROKER", label: "Vihanga Cloud", description: "Separate cloud broker", icon: "radio" },
+  { id: "SERIAL", label: "Server USB", description: "API computer", icon: "link" },
   { id: "UDP", label: "UDP", description: "Local listener", icon: "activity" },
   { id: "TCP", label: "TCP", description: "Local client", icon: "database" },
-  { id: "LAN", label: "Direct Wi-Fi", description: "Private Pi LAN", icon: "radio" },
-  { id: "BROKER", label: "Vihanga Cloud", description: "Cloud broker", icon: "radio" },
-  { id: "CLOUD", label: "Private relay", description: "Operator relay", icon: "shield" },
 ];
 
 function storedOrigin(method: ConnectionMethod): string {
@@ -100,7 +101,7 @@ export function validateConnection(input: ConnectionRequest): string | null {
 
 export default function ConnectionSettings({
   aircraftName, aircraftId, telemetry, initialRole, busy, error,
-  onConnect, onConnectBrowserSerial, onActivate, onRemoveBackup, onDisconnect, onClose
+  onConnect, onConnectBrowserSerial, onActivate, onRemoveBackup, onDisconnect, onClose, onClearError
 }: Props) {
   const [role, setRole] = useState<ConnectionRole>(initialRole);
   const [method, setMethod] = useState<ConnectionMethod>(
@@ -118,7 +119,6 @@ export default function ConnectionSettings({
   const [serialScanError, setSerialScanError] = useState("");
   const [serialScanBusy, setSerialScanBusy] = useState(false);
   const [serialScanRevision, setSerialScanRevision] = useState(0);
-  const [grantedBrowserPorts, setGrantedBrowserPorts] = useState(0);
   const browserSerialAvailable = Boolean(getBrowserSerial());
   const [baud, setBaud] = useState(57600);
   const [port, setPort] = useState(14550);
@@ -156,21 +156,14 @@ export default function ConnectionSettings({
     return () => { cancelled = true; };
   }, [method, serialScanRevision]);
 
-  useEffect(() => {
-    if (method !== "BROWSER_USB") return;
-    let cancelled = false;
-    getBrowserSerial()?.getPorts().then(ports => {
-      if (!cancelled) setGrantedBrowserPorts(ports.length);
-    }).catch(() => { if (!cancelled) setGrantedBrowserPorts(0); });
-    return () => { cancelled = true; };
-  }, [method]);
-
   function chooseMethod(next: ConnectionMethod) {
     setMethod(next);
     setOrigin(storedOrigin(next));
     setViewerToken("");
     setPassword("");
     setLocalError("");
+    onClearError?.();
+    if (next === "BROWSER_USB") setRole("BACKUP");
     if (next === "TCP") setPort(5760);
     if (next === "UDP") setPort(14550);
   }
@@ -180,6 +173,9 @@ export default function ConnectionSettings({
   const backupExists = Boolean(telemetry?.backup_transport);
   const alreadyConfigured = role === "PRIMARY" ? primaryExists : backupExists;
   const cannotAddBackup = role === "BACKUP" && !primaryExists;
+  const commonMethods: ConnectionMethod[] = ["CLOUD", "BROWSER_USB", "LAN"];
+  const advancedMethods: ConnectionMethod[] = ["BROKER", "SERIAL", "UDP", "TCP"];
+  const advancedSelected = advancedMethods.includes(method);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -215,17 +211,23 @@ export default function ConnectionSettings({
     const status = kind === "PRIMARY" ? telemetry?.primary_status : telemetry?.backup_status;
     const transport = kind === "PRIMARY" ? telemetry?.primary_transport : telemetry?.backup_transport;
     const selected = Boolean(transport) && (kind === "PRIMARY" ? selectedPrimary : !selectedPrimary);
+    const stateText = !transport ? "Not connected" : status === "LIVE" ? "Live telemetry" :
+      status === "WAITING_FOR_FRAMES" ? "Waiting for aircraft" :
+      status === "PARTIAL" ? "Telemetry incomplete" :
+      status === "STALE" ? "Telemetry stale" : "No live telemetry";
+    const transportText = transport === "BROWSER_SERIAL_READ_ONLY" ? "USB on this PC" :
+      transport === "VIHANGA_CLOUD_V2" ? "Vihanga Cloud" :
+      transport === "DIRECT_LAN_WSS" ? "Direct Wi-Fi" :
+      transport?.replaceAll("_", " ") || "No receiver";
     return <div className={"connection-link-card " + (status === "LIVE" ? "live " : "") +
       (selected ? "is-selected" : "")}>
       <div className="connection-link-title">
         <span className={"connection-status-dot " + (status === "LIVE" ? "live" : "")}/>
-        <strong>{kind === "PRIMARY" ? "Primary link" : "Backup link"}</strong>
-        {selected && <span className="connection-selected">Selected</span>}
+        <strong>{kind === "PRIMARY" ? "Primary" : "Backup"}</strong>
+        {selected && <span className="connection-selected">In use</span>}
       </div>
-      <span className="connection-link-status">{status?.replaceAll("_", " ") ||
-        (kind === "PRIMARY" ? "NOT CONNECTED" : "NOT CONFIGURED")}</span>
-      <small>{transport?.replaceAll("_", " ") ||
-        (kind === "PRIMARY" ? "Select a connection type" : "Standby path not configured")}</small>
+      <span className="connection-link-status">{stateText}</span>
+      <small>{transportText}</small>
     </div>;
   }
 
@@ -252,30 +254,63 @@ export default function ConnectionSettings({
         </div>
 
         <div className="connection-settings-section">
-          <span className="connection-settings-label">CONFIGURE RECEIVER</span>
+          <span className="connection-settings-label">RECEIVER</span>
           <div className="connection-role-switch" role="group" aria-label="Receiver assignment">
             {(["PRIMARY", "BACKUP"] as const).map(item =>
               <button type="button" key={item} onClick={() => {
-                setRole(item); setLocalError("");
+                setRole(item); setLocalError(""); onClearError?.();
+                if (item === "PRIMARY" && method === "BROWSER_USB") chooseMethod("CLOUD");
               }} aria-pressed={role === item} className={role === item ? "active" : ""}>
                 {item === "PRIMARY" ? "Primary" : "Backup"}
-                {item === "BACKUP" && <small>Standby</small>}
               </button>
             )}
           </div>
         </div>
 
-        <div className="connection-settings-section">
-          <span className="connection-settings-label">CONNECTION TYPE</span>
-          <div className="connection-settings-methods" role="group" aria-label="Connection method">
-            {methods.map(item => <button key={item.id} type="button"
-              aria-pressed={method === item.id}
-              className={method === item.id ? "active" : ""}
-              onClick={() => chooseMethod(item.id)}>
-              <UiIcon name={item.icon} size={18}/>
-              <span><strong>{item.label}</strong><small>{item.description}</small></span>
-            </button>)}
+        {(primaryExists || backupExists) && <div className="connection-settings-management">
+          <div>
+            {backupExists && telemetry?.active_source !== "BACKUP" &&
+              telemetry?.backup_status === "LIVE" && <button type="button" disabled={busy}
+              onClick={() => { void onActivate("BACKUP"); }}>Use backup</button>}
+            {backupExists && telemetry?.active_source === "BACKUP" &&
+              telemetry?.primary_status === "LIVE" && <button type="button" disabled={busy}
+              onClick={() => { void onActivate("PRIMARY"); }}>Restore primary</button>}
+            {backupExists && <button type="button" disabled={busy}
+              onClick={() => { void onRemoveBackup(); }}>Remove backup</button>}
+            <button type="button" disabled={busy} className="connection-disconnect"
+              onClick={() => { void onDisconnect(); }}>Disconnect all</button>
           </div>
+        </div>}
+
+        {alreadyConfigured ? <p className="connection-configured-note">
+          {role === "PRIMARY" ? "Primary" : "Backup"} is already configured.
+          Disconnect it before changing connection settings.
+        </p> : cannotAddBackup ? <p className="connection-configured-note">
+          Connect a primary receiver first.
+        </p> : <>
+        <div className="connection-settings-section">
+          <span className="connection-settings-label">CONNECT USING</span>
+          <div className="connection-settings-methods" role="group" aria-label="Connection method">
+            {methods.filter(item => commonMethods.includes(item.id)).map(item =>
+              <button key={item.id} type="button" aria-pressed={method === item.id}
+                className={method === item.id ? "active" : ""}
+                onClick={() => chooseMethod(item.id)}>
+                <UiIcon name={item.icon} size={18}/>
+                <span><strong>{item.label}</strong></span>
+              </button>)}
+          </div>
+          <details className="connection-advanced-methods" open={advancedSelected ? true : undefined}>
+            <summary>Advanced connections</summary>
+            <div className="connection-settings-methods" role="group" aria-label="Advanced connection methods">
+              {methods.filter(item => advancedMethods.includes(item.id)).map(item =>
+                <button key={item.id} type="button" aria-pressed={method === item.id}
+                  className={method === item.id ? "active" : ""}
+                  onClick={() => chooseMethod(item.id)}>
+                  <UiIcon name={item.icon} size={18}/>
+                  <span><strong>{item.label}</strong></span>
+                </button>)}
+            </div>
+          </details>
         </div>
 
         <form id="connection-settings-form" onSubmit={event => { void submit(event); }}
@@ -289,17 +324,9 @@ export default function ConnectionSettings({
                     <option key={value} value={value}>{value}</option>)}
                 </select>
               </label>
-              <p className="connection-settings-info">
-                This receiver reads USB telemetry directly in Chrome on this Windows laptop.
-                Choose COM6 in Chrome's device picker. Access requires one-time browser permission;
-                the website cannot silently identify or open local COM numbers.
-                The connection is read-only and does not go through Oracle.
+              <p className="connection-inline-note">
+                Choose the USB adapter in Chrome's port picker. This PC reads telemetry only.
               </p>
-              {grantedBrowserPorts === 1 && <button type="button"
-                className="connection-scan-button" disabled={busy}
-                onClick={() => { void onConnectBrowserSerial(baud,systemId,true); }}>
-                Reconnect authorized USB radio
-              </button>}
               {!browserSerialAvailable && <p role="alert" className="connection-settings-error">
                 Use a desktop Chromium browser with Web Serial on HTTPS.
               </p>}
@@ -326,15 +353,9 @@ export default function ConnectionSettings({
                 {serialScanBusy ? "Scanning" : "Rescan serial ports"}
               </button>
               {serialScanError && <p role="status" className="connection-settings-info">{serialScanError}</p>}
-              <p className="connection-settings-info">
-                {hostPlatform === "LINUX"
-                  ? "This GCS API runs on Linux. It cannot discover your Windows COM6. Connect locally to a Windows GCS API or use an authenticated Pi LAN backup."
-                  : hostPlatform === "WINDOWS"
-                  ? hostSerialPorts.length
-                    ? "Ports physically attached to this Windows GCS backend are shown. Check the telemetry baud rate and FC system ID."
-                    : "No serial ports are currently visible on this Windows GCS backend. Plug in the radio or release its port from other software."
-                  : "Serial discovery queries the API host, not your browser computer."}
-              </p>
+              {hostPlatform === "LINUX" && <p className="connection-inline-note">
+                Server USB scans Oracle/Linux, not this PC. Use This PC USB for a Windows radio.
+              </p>}
             </>}
             {(method === "UDP" || method === "TCP") && <div className="connection-settings-field-grid">
               <label>IP address<input readOnly value="127.0.0.1"
@@ -360,67 +381,37 @@ export default function ConnectionSettings({
                 placeholder="Enter aircraft-scoped token"
                 onChange={event => setViewerToken(event.target.value)}/></label>}
             </>}
-            <label>FC MAVLink system ID<input type="number" required min={1} max={254}
-              value={systemId} onChange={event => setSystemId(Number(event.target.value))}/></label>
-            {method === "LAN" && <p className="connection-settings-info">
-              Direct local Wi-Fi requires the Pi TLS certificate to be trusted by the
-              GCS backend. This path works without Oracle when the local network remains available.
+            <details className="connection-advanced-settings">
+              <summary>FC MAVLink system ID: {systemId}</summary>
+              <label>FC MAVLink system ID<input type="number" required min={1} max={254}
+                value={systemId} onChange={event => setSystemId(Number(event.target.value))}/></label>
+            </details>
+            {method === "LAN" && <p className="connection-inline-note">
+              Requires a trusted Pi HTTPS connection on the local network.
             </p>}
-            {(method === "UDP" || method === "TCP") && <p className="connection-settings-info">
-              Local loopback only. This is not a remote IP connection.
-            </p>}
-            {role === "BACKUP" && <p className="connection-settings-info">
-              Standby is an additional GCS telemetry transport, not the RC radio paired to Pixhawk.
-              Switching monitoring sources requires fresh MAVLink telemetry and explicit selection.
+            {(method === "UDP" || method === "TCP") && <p className="connection-inline-note">
+              Connects only to 127.0.0.1 on the API host.
             </p>}
           </div>
           {(localError || error) && <p role="alert" className="connection-settings-error">
             {localError || error}
           </p>}
-          {alreadyConfigured && <p className="connection-settings-info">
-            This {role.toLowerCase()} receiver is configured. Disconnect the existing receiver
-            before replacing its settings.
-          </p>}
-          {cannotAddBackup && <p className="connection-settings-info">
-            Connect a primary receiver before configuring the standby link.
-          </p>}
         </form>
+        </>}
 
-        {(primaryExists || backupExists) && <div className="connection-settings-management">
-          <span className="connection-settings-label">ACTIVE LINK MANAGEMENT</span>
-          <div>
-            {backupExists && <>
-              <button type="button" disabled={busy || telemetry?.backup_status !== "LIVE" ||
-                telemetry?.active_source === "BACKUP"} onClick={() => { void onActivate("BACKUP"); }}>
-                Use backup
-              </button>
-              <button type="button" disabled={busy || telemetry?.primary_status !== "LIVE" ||
-                telemetry?.active_source !== "BACKUP"} onClick={() => { void onActivate("PRIMARY"); }}>
-                Restore primary
-              </button>
-              <button type="button" disabled={busy} onClick={() => { void onRemoveBackup(); }}>
-                Remove backup
-              </button>
-            </>}
-            <button type="button" disabled={busy} className="connection-disconnect"
-              onClick={() => { void onDisconnect(); }}>Disconnect all</button>
-          </div>
-        </div>}
       </div>
 
       <footer className="connection-settings-footer">
-        <p><UiIcon name="lock" size={14}/> Receive-only telemetry.
-          No automatic flight-control takeover or aircraft command dispatch.</p>
+        <p><UiIcon name="lock" size={14}/> Telemetry only. No flight commands.</p>
         <div>
           <button type="button" className="connection-secondary"
-            disabled={busy} onClick={onClose}>Cancel</button>
-          <button type="submit" form="connection-settings-form"
+            disabled={busy} onClick={onClose}>Close</button>
+          {!alreadyConfigured && !cannotAddBackup && <button type="submit" form="connection-settings-form"
             className="connection-primary" disabled={busy || !aircraftId ||
-              alreadyConfigured || cannotAddBackup ||
-               (method === "BROWSER_USB" && (role !== "BACKUP" || !browserSerialAvailable)) ||
-               (method === "SERIAL" && (!hostSerialPorts.includes(serialPort) || serialScanBusy))}>
-            {busy ? "Connecting…" : method === "BROWSER_USB" ? "Select this PC radio" : role === "PRIMARY" ? "Connect primary" : "Connect backup"}
-          </button>
+              (method === "BROWSER_USB" && (role !== "BACKUP" || !browserSerialAvailable)) ||
+              (method === "SERIAL" && (!hostSerialPorts.includes(serialPort) || serialScanBusy))}>
+            {busy ? "Connecting…" : method === "BROWSER_USB" ? "Connect USB" : role === "PRIMARY" ? "Connect primary" : "Connect backup"}
+          </button>}
         </div>
       </footer>
     </section>

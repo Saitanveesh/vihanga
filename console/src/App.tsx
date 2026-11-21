@@ -1007,6 +1007,7 @@ export default function App() {
         onActivate={chooseSource}
         onRemoveBackup={stopBackupLink}
         onDisconnect={stopLink}
+        onClearError={() => setConnectionError("")}
         onClose={() => {
           if (!busy) { setConnectOpen(false); setConnectionError(""); }
         }}
