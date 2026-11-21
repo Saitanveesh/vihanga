@@ -162,10 +162,8 @@ export default function GeoMap({
         filter: ["==", ["get", "kind"], "vertex"],
         paint: { "circle-radius": 6, "circle-color": "#f7e9cd", "circle-stroke-color": "#284650",
           "circle-stroke-width": 2 } });
-      map.addLayer({ id: "waypoint-dots", type: "circle", source: "vihanga-geometry",
-        filter: ["==", ["get", "kind"], "waypoint"],
-        paint: { "circle-radius": 8, "circle-color": "#e6b25e",
-                 "circle-stroke-color": "#13212b", "circle-stroke-width": 3 } });
+      // Waypoint pins are rendered by the HTML overlay below. A second
+      // MapLibre circle layer painted every point twice and caused clusters.
       map.addLayer({ id: "live-aircraft", type: "circle", source: "vihanga-geometry",
         filter: ["==", ["get", "kind"], "aircraft"],
         paint: { "circle-radius": 10, "circle-color": "#2ecbff", "circle-stroke-color": "#fff",
@@ -272,6 +270,9 @@ export default function GeoMap({
         const labelled = numbered.has(index);
         node.className = "vihanga-waypoint" + (labelled ? "" : " compact") +
           (selected ? " selected" : "");
+        // Keep all vertices in the route line/data; only expose markers
+        // with available screen space to avoid dense hitboxes obscuring the map.
+        node.style.display = labelled ? "" : "none";
         node.textContent = labelled ? String(index + 1) : "";
       });
     };
