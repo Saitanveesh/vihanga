@@ -1,81 +1,81 @@
 /* VIHANGA flight-deck visual system — designed to preserve readable map geometry. */
 :root {
-  --bg:#081017;--surface:#111c25;--surface2:#162530;
-  --divider:#2e4050;--text:#eaf1f6;--muted:#a1b1bd;
-  --mission:#d0a354;--live:#59c4a2;
-  --c-bg:#081017;--c-rail:#0b151e;--c-side:#101b25;
-  --c-surface:#172530;--c-panel:#111e28;--c-border:#324654;
-  --c-border-soft:#243846;--c-text:#e8f0f5;--c-muted:#a0b3c0;
-  --c-accent:#75b6d9;--c-accent-deep:#294d63;
-  --c-live:#59c4a2;--c-route:#d2a65a;
+  --bg:#0f0f0f;--surface:#1a1a1a;--surface2:#232323;
+  --divider:#3d3d3d;--text:#f0f0f0;--muted:#aeaeae;
+  --mission:#d0a354;--live:#ababab;
+  --c-bg:#0f0f0f;--c-rail:#141414;--c-side:#191919;
+  --c-surface:#232323;--c-panel:#1c1c1c;--c-border:#434343;
+  --c-border-soft:#353535;--c-text:#efefef;--c-muted:#b0b0b0;
+  --c-accent:#ababab;--c-accent-deep:#474747;
+  --c-live:#ababab;--c-route:#d2a65a;
 }
-body,.workspace{background:#081017;color:#e8f0f5}
-.rail{background:#09131b;border-right:1px solid #273c4a}
+body,.workspace{background:#0f0f0f;color:#efefef}
+.rail{background:#111111;border-right:1px solid #393939}
 .identity{padding:15px 0 21px}
 .identity .vihanga-logo {
   border:0;background:transparent;display:block;width:46px;height:46px;
   border-radius:10px;overflow:hidden;
 }
 .identity .vihanga-logo img{display:block;width:100%;height:100%;object-fit:contain}
-.identity b{font-weight:800;font-size:10px;letter-spacing:1.2px;color:#d7e8f3}
-.rail-item{color:#9bb1bf}
-.rail-item:hover{background:#192a36;color:#f1f8fd}
-.rail-item.selected{background:#213745;color:#f0f8fd;box-shadow:inset 0 0 0 1px #355569}
-.rail-item.selected::before{background:#78badb}
-.rail-item.selected .rail-icon{color:#a4d8f4}
-.fleetbar{background:#101b25;border-right:1px solid #273c4a}
-.fleetbar-head,.fleetbar-foot{background:#101b25}
-.aircraft-item{background:#172631;border-color:#2c4250;border-radius:6px}
-.aircraft-item.current{background:#203847;border-color:#65a1c4}
-.aircraft-item:hover{border-color:#70b2d6}
-.toolbar{background:#14212c;border-bottom:1px solid #375063}
-.toolbar .toolbar-button{border-color:#435f72;background:#223948;color:#dcebf4}
-.toolbar .toolbar-button.accent{background:#30698c;border-color:#478fb9;color:#f3fbff}
-.toolbar .toolbar-button:hover{background:#31556c}
-.link-chip.ok{background:#153f36;color:#83ddba;border-color:#3d9e7e}
-.map-stage{background:#081017}
+.identity b{font-weight:800;font-size:10px;letter-spacing:1.2px;color:#e5e5e5}
+.rail-item{color:#adadad}
+.rail-item:hover{background:#272727;color:#f7f7f7}
+.rail-item.selected{background:#333333;color:#f7f7f7;box-shadow:inset 0 0 0 1px #505050}
+.rail-item.selected::before{background:#aeaeae}
+.rail-item.selected .rail-icon{color:#cfcfcf}
+.fleetbar{background:#191919;border-right:1px solid #393939}
+.fleetbar-head,.fleetbar-foot{background:#191919}
+.aircraft-item{background:#242424;border-color:#3e3e3e;border-radius:6px}
+.aircraft-item.current{background:#343434;border-color:#979797}
+.aircraft-item:hover{border-color:#a7a7a7}
+.toolbar{background:#1f1f1f;border-bottom:1px solid #4c4c4c}
+.toolbar .toolbar-button{border-color:#5a5a5a;background:#353535;color:#e8e8e8}
+.toolbar .toolbar-button.accent{background:#5f5f5f;border-color:#838383;color:#fafafa}
+.toolbar .toolbar-button:hover{background:#4f4f4f}
+.link-chip.ok{background:#353535;color:#c7c7c7;border-color:#878787}
+.map-stage{background:#0f0f0f}
 .operation-ribbon,.map-tools,.panel-launcher button{
-  background:#162734f5;border:1px solid #496273;border-radius:6px;box-shadow:0 4px 13px #0007
+  background:#242424f5;border:1px solid #5e5e5e;border-radius:6px;box-shadow:0 4px 13px #0007
 }
-.operation-ribbon button{color:#dbe8ee}
-.operation-ribbon button.active{background:#355d76;color:#eef8ff!important;border-color:#5799c3}
-.map-tools button.chosen{background:#315d79;color:#edf9ff}
-.float-panel{background:#12212cfa;border:1px solid #496071;
-  box-shadow:0 16px 30px #050b1191;border-radius:7px}
-.panel-title,.control-head{background:#1b2d3a;border-bottom:1px solid #3d5464}
-.plan-panel .major{background:#365e78;color:#f5faff;border-color:#5e9abe}
-.plan-panel .major:hover:not(:disabled){background:#457593}
-.plan-panel .plan-tabs button.active{background:#31566f;color:#f5fcff}
-.plan-panel .route-row.picked{background:#2b3f4c;box-shadow:inset 3px 0 0 #79b6d5}
-.plan-panel .route-total{background:#b7d9eb;color:#142938}
-.instrument-dock{background:#14212c;border-top-color:#3e596b}
-.instrument-dock .dock-readouts>div{border-color:#2c4251}
-.vihanga-waypoint:not(.selected) {background:#cda15a;color:#15222b;box-shadow:0 2px 6px #000a}
-.vihanga-waypoint.compact:not(.selected) {background:#b9dded;border-color:#1b4056}
-.vihanga-waypoint.selected{background:#93d0ed;border-color:#f3fbff;box-shadow:0 0 0 3px #2a748c80,0 3px 10px #000b}
-.network-watch{background:#101f2af4;border-color:#4a6576}
-.network-watch-top{background:#162b39}
-.network-watch-top:hover{background:#223e51}
-.network-watch-details{background:#101f2a}
-.ops-drawer{background:#12222df9;border-left-color:#496577}
+.operation-ribbon button{color:#e6e6e6}
+.operation-ribbon button.active{background:#565656;color:#f6f6f6!important;border-color:#8e8e8e}
+.map-tools button.chosen{background:#565656;color:#f7f7f7}
+.float-panel{background:#1f1f1ffa;border:1px solid #5c5c5c;
+  box-shadow:0 16px 30px #0a0a0a91;border-radius:7px}
+.panel-title,.control-head{background:#2a2a2a;border-bottom:1px solid #505050}
+.plan-panel .major{background:#575757;color:#f9f9f9;border-color:#909090}
+.plan-panel .major:hover:not(:disabled){background:#6d6d6d}
+.plan-panel .plan-tabs button.active{background:#505050;color:#fbfbfb}
+.plan-panel .route-row.picked{background:#3c3c3c;box-shadow:inset 3px 0 0 #ababab}
+.plan-panel .route-total{background:#d3d3d3;color:#262626}
+.instrument-dock{background:#1f1f1f;border-top-color:#555555}
+.instrument-dock .dock-readouts>div{border-color:#3e3e3e}
+.vihanga-waypoint:not(.selected) {background:#cda15a;color:#202020;box-shadow:0 2px 6px #000a}
+.vihanga-waypoint.compact:not(.selected) {background:#d7d7d7;border-color:#3a3a3a}
+.vihanga-waypoint.selected{background:#c5c5c5;border-color:#fafafa;box-shadow:0 0 0 3px #66666680,0 3px 10px #000b}
+.network-watch{background:#1d1d1df4;border-color:#606060}
+.network-watch-top{background:#282828}
+.network-watch-top:hover{background:#393939}
+.network-watch-details{background:#1d1d1d}
+.ops-drawer{background:#1f1f1ff9;border-left-color:#606060}
 
 /* Planner editing lives above sliders, not hidden below a scroll region. */
 .planner-quick-actions{
   display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:6px;padding:7px 14px 10px;border-bottom:1px solid #354b5a;
+  gap:6px;padding:7px 14px 10px;border-bottom:1px solid #474747;
 }
 .planner-quick-actions button{
   text-align:center;padding:8px 6px;min-height:33px;
-  font-size:11px;font-weight:700;color:#cfdfeb;
-  background:#233b4a;border:1px solid #476779;border-radius:4px;
+  font-size:11px;font-weight:700;color:#dcdcdc;
+  background:#373737;border:1px solid #616161;border-radius:4px;
 }
 .planner-quick-actions button:hover:not(:disabled){
-  border-color:#80b9d5;background:#31536a
+  border-color:#afafaf;background:#4d4d4d
 }
-.planner-quick-actions .planner-reset{background:#25313a;color:#e0bbb1;border-color:#71514e}
+.planner-quick-actions .planner-reset{background:#2f2f2f;color:#e0bbb1;border-color:#71514e}
 .planner-quick-actions .planner-reset:hover:not(:disabled){background:#493a39;border-color:#b9847b}
 .planner-quick-actions button:disabled{opacity:.35}
-.plan-panel .panel-section-label{color:#b7d0df}
+.plan-panel .panel-section-label{color:#cccccc}
 @media(max-width:680px){
   .identity{padding:5px 7px;gap:5px}
   .identity .vihanga-logo{width:34px;height:34px}

@@ -58,9 +58,9 @@
 .bench-record-controls { display: flex; gap: 6px; }
 .bench-workspace button, .bench-workspace select {
   padding: 6px 9px;
-  background: #182633;
+  background: #242424;
   color: var(--station-text);
-  border: 1px solid #405565;
+  border: 1px solid #525252;
   border-radius: 4px;
   min-height: 32px;
   font-size: 12px;
