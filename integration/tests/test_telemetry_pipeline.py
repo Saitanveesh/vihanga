@@ -61,6 +61,31 @@ def gps(fix=3):
         1234, fix, 129710000, 775900000, 40000, 70, 70, 0, 0, 10)
 
 
+def test_rc_receiver_input_survives_edge_cloud_projector_without_fake_standby():
+    # A real RC_CHANNELS MAVLink message travels through the same validated
+    # edge and broker gates as flight telemetry, not as a separate GCS link.
+    rc = mavlink.MAVLink_rc_channels_message(
+        120, 6, *([1510, 1500, 1030, 1200, 1820, 1100] + [65535] * 12 + [220])
+    )
+    raw = frame(rc)
+    gate = FrameGate(1)
+    assert gate.consume(raw) == [raw]
+
+    slot = Broker(identities()).slots["TEST-001"]
+    forwarded = slot.validate(raw, mavlink.MAVLink(None))
+    assert forwarded == (raw, "RC_CHANNELS")
+    projector = MAVLinkProjector(1)
+    assert projector.push(forwarded[0]) == 1
+    sample = projector.snapshot()
+    assert sample["rc_input_status"] == "CHANNELS_REPORTED"
+    assert sample["rc_channels_fresh"] is True
+    assert sample["rc_channel_count"] == 6
+    assert sample["rc_rssi_raw"] == 220
+    assert sample["radio_rssi_raw"] is None
+    assert sample["heartbeat_fresh"] is False
+    assert gate.consume(frame(rc, sysid=2)) == []
+
+
 def test_real_protocol_edge_to_cloud_to_gcs_instruments_and_map(tmp_path):
     broker = Broker(identities())
     gcs = create_gcs(tmp_path / "fleet.sqlite3")

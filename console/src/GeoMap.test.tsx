@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import GeoMap, { buildGeometry, type MapPoint, type RoutePoint } from "./GeoMap";
+import GeoMap, { buildGeometry, visibleWaypointLabels, type MapPoint, type RoutePoint } from "./GeoMap";
 
 const stats = vi.hoisted(() => ({ resizeCalls: 0, fitPaddingLeft: null as number | null }));
 vi.mock("maplibre-gl", () => {
@@ -45,6 +45,23 @@ const route: RoutePoint[] = [
 const origin: MapPoint = {latitude: 12.9716, longitude: 77.5946};
 
 describe("geographic map visual geometry regression", () => {
+  it("keeps every survey waypoint in geometry while hiding overlapping number labels", () => {
+    const dense: RoutePoint[] = Array.from({length:15}, (_, index) => ({
+      latitude:12.9715 + index * 0.000003,
+      longitude:77.5945 + index * 0.000003,
+      altitude_m:35
+    }));
+    const labels = visibleWaypointLabels(dense, 17);
+    expect(labels.size).toBe(1);
+    expect(labels.has(0)).toBe(true);
+    const chosen = visibleWaypointLabels(dense, 17, 10);
+    expect(chosen.has(10)).toBe(true);
+    expect(chosen.has(0)).toBe(false);
+    const geometry = buildGeometry([], dense, null, []);
+    expect(geometry.features.filter(item => item.properties.kind === "waypoint")).toHaveLength(15);
+    expect(geometry.features.some(item => item.properties.kind === "route")).toBe(true);
+  });
+
   it("provides waypoint point geometry even before there is a line", () => {
     const first = buildGeometry([], route.slice(0,1), null, []);
     expect(first.features.filter(f => f.properties.kind === "waypoint")).toHaveLength(1);

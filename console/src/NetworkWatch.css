@@ -1,24 +1,25 @@
 /* Persistent, data-backed communications watch; independent of map controls. */
 .network-watch {
   position:absolute;z-index:5;right:18px;bottom:43px;
-  width:min(374px,calc(100% - 30px));border:1px solid #556f7d;
+  width:min(246px,calc(100% - 30px));border:1px solid #556f7d;
   border-radius:7px;background:#16232def;color:#e8f1f5;
   box-shadow:0 10px 26px #0611189a;
   font-family:"Segoe UI",Arial,sans-serif;overflow:hidden;
 }
 .network-watch-top {
-  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  display:flex;align-items:center;gap:7px;flex-wrap:nowrap;
   width:100%;background:#1c2c37;border:0;padding:9px 11px;
   cursor:pointer;color:#e4eef4;text-align:left;
 }
+.network-watch.expanded{width:min(290px,calc(100% - 30px))}
 .network-watch-top:hover {background:#273b49}
 .network-watch-name {
-  display:inline-flex;align-items:center;gap:6px;
+  display:inline-flex;align-items:center;gap:5px;
   color:#bed3df;font-size:9px;letter-spacing:.8px;font-weight:800;
 }
 .network-watch-indicator {
   display:inline-flex;align-items:center;gap:5px;
-  color:#a9c3d0;font-size:10px;font-weight:700;white-space:nowrap;
+  color:#a9c3d0;font-size:9px;font-weight:700;white-space:nowrap;
 }
 .network-watch-indicator::before{
   content:"";width:6px;height:6px;border-radius:50%;background:#8b9ca4;
@@ -32,10 +33,10 @@
 }
 .network-watch-caret{margin-left:auto;color:#c3d4df;font-size:16px}
 .network-watch-details {
-  padding:0 12px 10px;max-height:min(420px,60vh);overflow-y:auto;
+  padding:0 12px 9px;max-height:min(256px,36vh);overflow-y:auto;
   scrollbar-color:#527185 #20323f;scrollbar-width:thin;
 }
-.network-watch-block {padding:12px 0;border-top:1px solid #39505e}
+.network-watch-block {padding:8px 0;border-top:1px solid #39505e}
 .network-watch-block>div:first-child{
   display:flex;justify-content:space-between;align-items:center;
   gap:10px;margin-bottom:8px;
@@ -76,12 +77,22 @@
 .network-watch-sr-status{position:absolute;width:1px;height:1px;
   padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:1050px){
-  .network-watch{right:12px;bottom:37px;width:min(350px,calc(100% - 24px))}
+  .network-watch{right:12px;bottom:37px;width:min(246px,calc(100% - 24px))}
+  .network-watch.expanded{width:min(290px,calc(100% - 24px))}
 }
 @media(max-width:650px){
-  .network-watch{right:8px;bottom:33px;width:min(326px,calc(100% - 16px))}
+  .network-watch{right:8px;bottom:33px;width:min(246px,calc(100% - 16px))}
+  .network-watch.expanded{width:min(280px,calc(100% - 16px))}
   .network-watch-top{gap:5px;padding:7px 8px}
   .network-watch-name{font-size:8px}
   .network-watch-indicator{font-size:9px}
 }
 @media(prefers-reduced-motion:reduce){.network-watch *{transition:none!important}}
+
+/* Keep live monitor on a single horizontal strip in the collapsed state. */
+.network-watch:not(.expanded) .network-watch-name{font-size:8px}
+.network-watch:not(.expanded) .network-watch-top{padding:7px 9px}
+.network-watch:not(.expanded) .network-watch-indicator{font-size:8px}
+.network-watch:not(.expanded) .network-watch-indicator.ok{color:#8de3c7}
+.network-watch:not(.expanded) .network-watch-indicator.down{color:#eda5a0}
+.network-watch:not(.expanded) .network-watch-indicator.warn{color:#f1c585}

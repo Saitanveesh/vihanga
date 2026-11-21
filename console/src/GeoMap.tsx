@@ -78,6 +78,37 @@ export function buildGeometry(polygon: MapPoint[], route: RoutePoint[], position
   return { type: "FeatureCollection", features };
 }
 
+// Label collision avoidance in Web Mercator pixel space at the actual map zoom.
+// Every route point stays in GeoJSON; crowded HTML labels collapse to small
+// selectable dots while the selected point gets first priority.
+export function visibleWaypointLabels(route: RoutePoint[], zoom: number,
+                                      selected: number | null = null): Set<number> {
+  const visible = new Set<number>();
+  const claimed: [number, number][] = [];
+  const scale = 512 * 2 ** Math.max(0, Math.min(22, zoom));
+  const coords = route.map(point => {
+    const lat = Math.max(-85, Math.min(85, point.latitude)) * Math.PI / 180;
+    return [
+      (point.longitude + 180) / 360 * scale,
+      (1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2 * scale,
+    ] as [number, number];
+  });
+  const ordered = [
+    ...(selected != null && selected >= 0 && selected < route.length ? [selected] : []),
+    ...route.map((_, index) => index === 0 || index === route.length - 1 ? index : -1)
+      .filter(index => index >= 0),
+    ...route.map((_, index) => index)
+  ];
+  for (const index of ordered) {
+    if (visible.has(index)) continue;
+    const [x, y] = coords[index];
+    if (claimed.some(([cx, cy]) => Math.hypot(cx - x, cy - y) < 36)) continue;
+    visible.add(index);
+    claimed.push([x, y]);
+  }
+  return visible;
+}
+
 export default function GeoMap({
   polygon, route, track, position, drawing, basemap, centerSignal, fitSignal,
   selectedWaypoint = null, onWaypointSelect, fitLeftPadding = 120,
@@ -217,18 +248,10 @@ export default function GeoMap({
     const map = mapRef.current;
     if (!map) return;
 
-    // HTML overlay pins remain visible on both satellite and street layers,
-    // including during style reloads. All points receive an actual marker;
-    // large coverage missions abbreviate labels to prevent visual clutter.
-    const stride = Math.max(1, Math.ceil(route.length / 35));
+    const nodes: HTMLDivElement[] = [];
     route.forEach((point, index) => {
       const node = document.createElement("div");
-      const numbered = route.length <= 35 || index === 0 ||
-        index === route.length - 1 || index % stride === 0 ||
-        selectedWaypoint === index;
-      node.className = "vihanga-waypoint" +
-        (numbered ? "" : " compact") + (selectedWaypoint === index ? " selected" : "");
-      node.textContent = numbered ? String(index + 1) : "";
+      node.className = "vihanga-waypoint compact";
       node.setAttribute("aria-label", "Waypoint " + (index + 1));
       node.title = "WP " + (index + 1) + " · " +
         point.latitude.toFixed(6) + ", " + point.longitude.toFixed(6);
@@ -239,8 +262,23 @@ export default function GeoMap({
       const marker = new maplibregl.Marker({element: node, anchor: "center"})
         .setLngLat([point.longitude, point.latitude]).addTo(map);
       pointMarkers.current.push(marker);
+      nodes.push(node);
     });
+    const renderLabels = () => {
+      const zoom = typeof map.getZoom === "function" ? map.getZoom() : 17;
+      const numbered = visibleWaypointLabels(route, zoom, selectedWaypoint);
+      nodes.forEach((node, index) => {
+        const selected = selectedWaypoint === index;
+        const labelled = numbered.has(index);
+        node.className = "vihanga-waypoint" + (labelled ? "" : " compact") +
+          (selected ? " selected" : "");
+        node.textContent = labelled ? String(index + 1) : "";
+      });
+    };
+    renderLabels();
+    map.on("zoomend", renderLabels);
     return () => {
+      map.off?.("zoomend", renderLabels);
       pointMarkers.current.forEach(marker => marker.remove());
       pointMarkers.current = [];
     };

@@ -257,6 +257,58 @@ export default function App() {
   }
 
 
+  function clearWaypoints() {
+    // A saved route is immutable in the database. Clearing only changes the
+    // on-screen draft and its visible map geometry, not saved mission records.
+    setOpenedMission(null);
+    setManual([]);
+    setSurvey(null);
+    setEditedRoute(null);
+    setSelectedWaypoint(null);
+    notify("Waypoint layer cleared.");
+  }
+
+  function clearBoundary() {
+    setPolygon([]);
+    if (survey) {
+      setSurvey(null);
+      setEditedRoute(null);
+    }
+    setSelectedWaypoint(null);
+    notify("Survey boundary cleared.");
+  }
+
+  function resetPlanner() {
+    setPolygon([]);
+    setManual([]);
+    setSurvey(null);
+    setEditedRoute(null);
+    setOpenedMission(null);
+    setSelectedWaypoint(null);
+    setDrawMode("NONE");
+    setPattern("PARALLEL");
+    setSpacing(20);
+    setBearing(0);
+    setAltitude(35);
+    setSpeed(5);
+    setMissionTitle("");
+    notify("Planner reset. Saved mission records were not deleted.");
+  }
+
+  function undoPlannerPoint() {
+    if (openedMission) return;
+    if (drawMode === "POLYGON") {
+      setPolygon(previous => previous.slice(0, -1));
+      setSurvey(null);
+      setEditedRoute(null);
+    } else {
+      const previous = editedRoute ?? survey?.waypoints ?? manual;
+      if (survey || editedRoute) setEditedRoute(previous.slice(0, -1));
+      else setManual(points => points.slice(0, -1));
+    }
+    setSelectedWaypoint(null);
+  }
+
   function reviseWaypoint(index: number, field: "latitude" | "longitude" | "altitude_m", raw: string) {
     if (openedMission) return; // saved mission revisions are immutable
     const n = Number(raw);
@@ -348,7 +400,7 @@ export default function App() {
     } catch (e) { fail(e); } finally { setBusy(false); }
   }
   function openConnection(role?: ConnectionRole) {
-    const requested = role ?? (sample?.primary_transport ? "BACKUP" : "PRIMARY");
+    const requested = role ?? "PRIMARY";
     setConnectionRole(requested);
     setConnectionError("");
     setConnectOpen(true);
@@ -460,7 +512,7 @@ export default function App() {
   return (
     <div className="workspace">
       <aside className="rail">
-        <div className="identity"><span>V</span><b>VIHANGA</b></div>
+        <div className="identity"><span className="vihanga-logo"><img src="/vihanga-mark.svg" alt=""/></span><b>VIHANGA</b></div>
         <nav aria-label="Workspaces">
           {sections.map(item => <button key={item.label} type="button"
             className={"rail-item " + (section === item.label ? "selected" : "")}
@@ -515,7 +567,7 @@ export default function App() {
             <button type="button" className="toolbar-button fleet-toggle"
               aria-label={fleetOpen ? "Hide aircraft list" : "Show aircraft list"}
               aria-pressed={fleetOpen} onClick={() => setFleetOpen(v => !v)}>
-              <UiIcon name="fleet" size={15}/> {fleetOpen ? "Hide fleet" : "Fleet"}
+              <UiIcon name="fleet" size={15}/> {fleetOpen ? "Hide aircraft" : "Aircraft"}
             </button>
             <span className={"link-chip " + (sample?.status === "LIVE" ? "ok" : "")}>
               <span className="chip-dot"/>{linkLabel(sample?.status)}
@@ -550,7 +602,7 @@ export default function App() {
               title="Fit survey or route to map"
               onClick={() => setFitSignal(x => x + 1)}>Fit route</button>
           </div>
-          {(section === "FLIGHT" || section === "PLAN") && <div className="operation-ribbon" role="toolbar" aria-label="Planning tools">
+          {section === "PLAN" && <div className="operation-ribbon" role="toolbar" aria-label="Planning tools">
             <button className={section === "PLAN" && drawMode === "POLYGON" ? "active" : ""}
               aria-pressed={section === "PLAN" && drawMode === "POLYGON"}
               onClick={() => { navigate("PLAN"); setDrawMode("POLYGON"); }} title="Draw survey boundary"><UiIcon name="plan" size={15}/> <span>Survey</span></button>
@@ -558,14 +610,12 @@ export default function App() {
               aria-pressed={section === "PLAN" && drawMode === "WAYPOINT"}
               onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints"><UiIcon name="map" size={15}/> <span>Waypoints</span></button>
             <button onClick={() => navigate("HISTORY")} title="View stored mission drafts"><UiIcon name="history" size={15}/> <span>Routes</span></button>
-            <span className="ribbon-divider"/>
-            <span className="ribbon-hint" title="Save and export planned routes; aircraft mission upload is not configured"><UiIcon name="map" size={13}/> Route editor</span>
           </div>}
           {!panelOpen && <div className="panel-launcher">
             <button type="button" onClick={() => setPanelOpen(true)}
               aria-expanded={false} aria-controls="operator-panel"
               aria-label="Show operator panel">
-              <UiIcon name="map" size={16}/> Show panel
+              <UiIcon name="map" size={16}/> {section === "PLAN" ? "Edit plan" : "Open panel"}
             </button>
             {section === "PLAN" && waypoints.length > 0 &&
               <span className="route-count">{waypoints.length} waypoint{waypoints.length === 1 ? "" : "s"}</span>}
@@ -607,6 +657,18 @@ export default function App() {
                 onClick={() => { setPattern("CIRCULAR"); setSurvey(null); setSelectedWaypoint(null); setEditedRoute(null); }}>Circular</button>
             </div>
             <div className="panel-section-label">AREA & WAYPOINTS</div>
+            <div className="planner-quick-actions" role="group" aria-label="Planner editing tools">
+              <button type="button" onClick={undoPlannerPoint}
+                disabled={!!openedMission || !(drawMode === "POLYGON" ? polygon.length : waypoints.length)}
+                title="Remove the last route waypoint or polygon vertex">Undo last</button>
+              <button type="button" onClick={clearWaypoints} disabled={!waypoints.length}
+                title="Clear displayed waypoints without deleting saved missions">Clear waypoints</button>
+              <button type="button" onClick={clearBoundary} disabled={!polygon.length}
+                title="Remove the survey boundary">Clear boundary</button>
+              <button type="button" className="planner-reset" onClick={resetPlanner}
+                disabled={!polygon.length && !waypoints.length && !missionTitle}
+                title="Reset planner settings and geometry; saved missions remain intact">Reset</button>
+            </div>
             <div className="toggle-row compact-row">
               <button type="button" className={drawMode === "POLYGON" ? "active" : ""}
                 onClick={() => { setDrawMode(drawMode === "POLYGON" ? "NONE" : "POLYGON"); setOpenedMission(null); }}>
@@ -646,18 +708,8 @@ export default function App() {
               </label>
             </div>
             <div className="plan-buttons">
-              <button type="button" onClick={() => {
-                if (drawMode === "POLYGON") setPolygon(p => p.slice(0,-1));
-                if (drawMode === "WAYPOINT") setManual(p => p.slice(0,-1));
-                setSelectedWaypoint(null);
-                setSurvey(null);setEditedRoute(null);setOpenedMission(null);
-              }}>Undo</button>
-              <button type="button" onClick={() => {
-                setPolygon([]);setManual([]);setSurvey(null);setEditedRoute(null);
-                setSelectedWaypoint(null);setOpenedMission(null);setDrawMode("NONE");
-              }}>Clear area</button>
               <button type="button" disabled={!polygon.length && !waypoints.length}
-                onClick={() => setFitSignal(v => v+1)}>Fit map</button>
+                onClick={() => setFitSignal(v => v+1)}>Fit geometry on map</button>
             </div>
             <button type="button" className="major" disabled={busy || polygon.length < 3}
               onClick={() => void preview()}>{busy ? "Working…" : "Generate coverage route"}</button>
@@ -787,9 +839,14 @@ export default function App() {
               <UiIcon name="map" size={15}/>
               <span>GPS</span><strong>{sample?.gps_fix_type == null ? "—" : "FIX " + sample.gps_fix_type}</strong>
             </div>
-            <div className="ops-signal-item">
-              <UiIcon name="activity" size={15}/>
-              <span>RF</span><strong>{sample?.radio_rssi_raw ?? "—"}</strong>
+            <div className={"ops-signal-item " +
+              (sample?.rc_input_status === "CHANNELS_REPORTED" || sample?.rc_input_status === "FC_HEALTHY"
+                ? "healthy" : sample?.rc_input_status === "FC_FAULT" ? "fault" : "")}
+              title="RC receiver report from Pixhawk; independent of the GCS telemetry backup">
+              <UiIcon name="radio" size={15}/>
+              <span>RC</span><strong>{sample?.rc_input_status === "CHANNELS_REPORTED" ? "INPUT" :
+                sample?.rc_input_status === "FC_HEALTHY" ? "FC OK" :
+                sample?.rc_input_status === "FC_FAULT" ? "FAULT" : "—"}</strong>
             </div>
             <button type="button" className="ops-summary-button"
               aria-label={diagnosticsOpen ? "Close link and sensors panel" : "Open link and sensors panel"}

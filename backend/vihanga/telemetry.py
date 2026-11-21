@@ -243,6 +243,26 @@ class MAVLinkProjector:
                 alt = msg.relative_alt / 1000
                 if -10000 <= alt <= 100000:
                     self._set("relative_alt_m", round(alt, 2), now)
+            elif typ in ("RC_CHANNELS", "RC_CHANNELS_RAW"):
+                # Pixhawk's RC receiver (FlySky/IBUS/PPM/SBUS) is not a
+                # MAVLink RADIO_STATUS telemetry modem. FC channel samples
+                # are independent evidence and never create a backup GCS link.
+                declared = int(msg.chancount) if typ == "RC_CHANNELS" else 8
+                if 1 <= declared <= 18:
+                    observed = [
+                        int(getattr(msg, f"chan{i}_raw"))
+                        for i in range(1, min(declared, 18) + 1)
+                    ]
+                    # Missing/invalid channels cannot establish live input.
+                    valid = sum(1 for value in observed if 800 <= value <= 2200)
+                    if valid:
+                        self._set("rc_channel_count", valid, now)
+                        self._set("rc_message_type", typ, now)
+                        rssi = int(msg.rssi)
+                        if 0 <= rssi < 255:
+                            self._set("rc_rssi_raw", rssi, now)
+                        else:
+                            self.fields.pop("rc_rssi_raw", None)
             elif typ == "RADIO_STATUS":
                 for name, raw_value in (
                     ("radio_rssi_raw", int(msg.rssi)),
@@ -333,6 +353,18 @@ class MAVLinkProjector:
             return item[0] if item is not None and now - item[1] <= limit else None
         fix = fresh("gps_fix_type", 5)
         roll, pitch = fresh("roll_deg"), fresh("pitch_deg")
+        rc_count = fresh("rc_channel_count", 5)
+        sensors = fresh("sensor_health", 5)
+        rc_sensor = sensors.get("rc_receiver") if sensors else None
+        # Only reported FC flags or fresh RC channel samples may inform state.
+        # Channel updates alone are not proof that the receiver is failsafe-free.
+        rc_state = (
+            "FC_FAULT" if rc_sensor == "FAULT" else
+            "FC_DISABLED" if rc_sensor == "DISABLED" else
+            "FC_ABSENT" if rc_sensor == "ABSENT" else
+            "CHANNELS_REPORTED" if rc_count is not None else
+            "FC_HEALTHY" if rc_sensor == "HEALTHY" else "NOT_REPORTED"
+        )
         return {
             "heartbeat_fresh": fresh("heartbeat") is True,
             "attitude_fresh": roll is not None and pitch is not None,
@@ -356,7 +388,12 @@ class MAVLinkProjector:
             "radio_rx_errors": fresh("radio_rx_errors", 5),
             "radio_fixed_packets": fresh("radio_fixed_packets", 5),
             "radio_txbuf_raw": fresh("radio_txbuf_raw", 5),
-            "sensor_health": fresh("sensor_health", 5),
+            "sensor_health": sensors,
+            "rc_input_status": rc_state,
+            "rc_channels_fresh": rc_count is not None,
+            "rc_channel_count": rc_count,
+            "rc_rssi_raw": fresh("rc_rssi_raw", 5),
+            "rc_message_type": fresh("rc_message_type", 5),
             "frame_rate_5s_hz": round(sum(
                 1 for stamp in self.recent_frames if 0 <= now - stamp <= 5) / 5, 2),
             "frames_total": sum(self.count.values()),

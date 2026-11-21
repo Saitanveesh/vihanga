@@ -61,6 +61,20 @@ def test_actual_mavlink_crc_origin_and_command_rejection():
     assert slot.frames_rejected >= 3
 
 
+def test_broker_accepts_genuine_rc_telemetry_but_not_control_packets():
+    slot = Broker(identities()).slots["TEST-001"]
+    parser = mavlink.MAVLink(None)
+    rc = mavlink.MAVLink_rc_channels_message(
+        100, 6, *([1500, 1500, 1250, 1090, 1600, 1200] + [65535] * 12 + [255])
+    )
+    packet = frame(rc)
+    assert slot.validate(packet, parser) == (packet, "RC_CHANNELS")
+    assert slot.message_counts["RC_CHANNELS"] == 1
+    assert slot.validate(frame(rc, sysid=2), parser) is None
+    command = mavlink.MAVLink_command_long_message(1, 1, 400, 0, 1, 0, 0, 0, 0, 0, 0)
+    assert slot.validate(frame(command), parser) is None
+
+
 def test_device_to_viewer_real_binary_fanout_never_accepts_viewer_commands():
     broker = Broker(identities())
     app = create_app(broker)
