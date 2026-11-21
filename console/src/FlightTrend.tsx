@@ -7,14 +7,19 @@ import {
 
 export function useFlightTrend(telemetry?: Telemetry) {
   const latest = useRef(telemetry);
-  const [trend, setTrend] = useState<{ now: number; points: FlightPoint[] }>(() => ({
-    now: Date.now(), points: []
+  const [trend, setTrend] = useState<{ now: number; points: FlightPoint[]; source: string | null }>(() => ({
+    now: Date.now(), points: [], source: null
   }));
   useEffect(() => { latest.current = telemetry; }, [telemetry]);
   useEffect(() => {
     function sample() {
       const now = Date.now();
-      setTrend(previous => ({ now, points: recordFlightPoint(previous.points, latest.current, now) }));
+      const data = latest.current;
+      setTrend(previous => {
+        const source = data?.transport ? (data.active_source ?? "PRIMARY") + "/" + data.transport : previous.source;
+        const points = source === previous.source ? previous.points : [];
+        return { now, source, points: recordFlightPoint(points, data, now) };
+      });
     }
     sample();
     const interval = window.setInterval(sample, SAMPLE_INTERVAL_MS);
@@ -61,7 +66,7 @@ export default function FlightTrend({ aircraftId, now, points }: {
         {[30_000, HISTORY_DURATION_MS].map(period => <button key={period} type="button"
           aria-pressed={duration === period} onClick={() => setDuration(period)}>{period / 1000} s</button>)}
       </div>
-      <span>{visible.length} samples · 1 s sampling</span>
+      <span>{visible.length} {visible.length === 1 ? "sample" : "samples"} · 1 s sampling</span>
       <button type="button" disabled={!aircraftId || visible.length === 0}
         onClick={() => download(visible, aircraftId)}>Export CSV</button>
     </div>

@@ -31,7 +31,7 @@ export function currentTelemetry(telemetry?: Telemetry): Telemetry | undefined {
 export function recordFlightPoint(history: FlightPoint[], telemetry: Telemetry | undefined, now: number): FlightPoint[] {
   const sample = currentTelemetry(telemetry);
   const live = sample?.status === "LIVE" && sample.heartbeat_fresh && sample.attitude_fresh;
-  const frames = live ? sample.frames_total : null;
+  const frames = live ? finite(sample.frames_total) : null;
   const last = history.at(-1);
   const expired = history.findIndex(point => point.at >= now - HISTORY_DURATION_MS);
   const retained = expired === 0 || !history.length ? history : history.slice(expired < 0 ? history.length : expired);

@@ -1,9 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import FlightInstruments from "./FlightInstruments";
 import type { Telemetry } from "./api";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 function data(): Telemetry {
   return {
@@ -41,6 +44,25 @@ describe("operator components: verified telemetry only", () => {
     expect(screen.getByText("P -11.5°")).toBeTruthy();
     expect(screen.getByText("FIX 1")).toBeTruthy();
     expect(screen.getByText("FRESH")).toBeTruthy();
+  });
+
+  it("retains trend history across an outage and starts a new trace on a different receiver", () => {
+    vi.useFakeTimers();
+    const sample = data();
+    const view = render(<FlightInstruments telemetry={sample} aircraftId={sample.vehicle_id}/>);
+    fireEvent.click(screen.getByRole("button", { name: "Telemetry trends" }));
+    expect(screen.getByText("1 sample · 1 s sampling")).toBeTruthy();
+
+    view.rerender(<FlightInstruments aircraftId={sample.vehicle_id}/>);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByText("1 sample · 1 s sampling")).toBeTruthy();
+
+    view.rerender(<FlightInstruments aircraftId={sample.vehicle_id}
+      telemetry={{ ...sample, transport: "LOCAL_SERIAL_RECEIVE", active_source: "BACKUP", groundspeed_mps: 14 }}/>);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByText("1 sample · 1 s sampling")).toBeTruthy();
+    const speedTrend = screen.getByRole("region", { name: "Ground speed trend" });
+    expect(speedTrend.textContent).toContain("14.0 m/s");
   });
 
 });

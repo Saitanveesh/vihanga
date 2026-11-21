@@ -249,9 +249,11 @@ export default function App() {
     open();
     const watchdog = window.setInterval(() => {
       if (ws && performance.now() - lastActivity > VIEWER_SILENCE_MS) {
+        if (viewerReceipt.current?.id === selected) {
+          setReadings(previous => Object.fromEntries(Object.entries(previous).filter(([id]) => id !== selected)));
+        }
         viewerReceipt.current = null;
         setLiveTransportConnected(false);
-        setReadings(previous => Object.fromEntries(Object.entries(previous).filter(([id]) => id !== selected)));
         ws.close();
       }
     }, 500);
@@ -1044,8 +1046,7 @@ export default function App() {
           {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
         </div>
         <div hidden={section !== "FLIGHT"} className="station-instrument-area">
-          <FlightInstruments key={JSON.stringify([selected, sample?.active_source, sample?.transport])}
-            telemetry={sample} aircraftId={selected}/>
+          <FlightInstruments key={selected} telemetry={sample} aircraftId={selected}/>
         </div>
         <footer className="station-statusbar" aria-label="Station status">
           <span>MODE <strong>{current?.heartbeat_fresh ? current.mode ?? "—" : "—"}</strong></span>
