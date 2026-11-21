@@ -72,6 +72,6 @@ describe("network watch assessments", () => {
     fireEvent.click(screen.getByRole("button", {name:/LINK MONITOR/}));
     await waitFor(() => expect(screen.getByText("API OFFLINE")).toBeTruthy());
     expect(screen.getAllByText("Not reported").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/uncalibrated MAVLink RADIO_STATUS/)).toBeTruthy();
+    expect(screen.getByText(/RC_CHANNELS and RADIO_STATUS are separate raw reports/)).toBeTruthy();
   });
 });
