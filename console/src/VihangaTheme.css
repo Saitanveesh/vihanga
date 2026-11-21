@@ -1,0 +1,83 @@
+/* VIHANGA flight-deck visual system — designed to preserve readable map geometry. */
+:root {
+  --bg:#081017;--surface:#111c25;--surface2:#162530;
+  --divider:#2e4050;--text:#eaf1f6;--muted:#a1b1bd;
+  --mission:#d0a354;--live:#59c4a2;
+  --c-bg:#081017;--c-rail:#0b151e;--c-side:#101b25;
+  --c-surface:#172530;--c-panel:#111e28;--c-border:#324654;
+  --c-border-soft:#243846;--c-text:#e8f0f5;--c-muted:#a0b3c0;
+  --c-accent:#75b6d9;--c-accent-deep:#294d63;
+  --c-live:#59c4a2;--c-route:#d2a65a;
+}
+body,.workspace{background:#081017;color:#e8f0f5}
+.rail{background:#09131b;border-right:1px solid #273c4a}
+.identity{padding:15px 0 21px}
+.identity .vihanga-logo {
+  border:0;background:transparent;display:block;width:46px;height:46px;
+  border-radius:10px;overflow:hidden;
+}
+.identity .vihanga-logo img{display:block;width:100%;height:100%;object-fit:contain}
+.identity b{font-weight:800;font-size:10px;letter-spacing:1.2px;color:#d7e8f3}
+.rail-item{color:#9bb1bf}
+.rail-item:hover{background:#192a36;color:#f1f8fd}
+.rail-item.selected{background:#213745;color:#f0f8fd;box-shadow:inset 0 0 0 1px #355569}
+.rail-item.selected::before{background:#78badb}
+.rail-item.selected .rail-icon{color:#a4d8f4}
+.fleetbar{background:#101b25;border-right:1px solid #273c4a}
+.fleetbar-head,.fleetbar-foot{background:#101b25}
+.aircraft-item{background:#172631;border-color:#2c4250;border-radius:6px}
+.aircraft-item.current{background:#203847;border-color:#65a1c4}
+.aircraft-item:hover{border-color:#70b2d6}
+.toolbar{background:#14212c;border-bottom:1px solid #375063}
+.toolbar .toolbar-button{border-color:#435f72;background:#223948;color:#dcebf4}
+.toolbar .toolbar-button.accent{background:#30698c;border-color:#478fb9;color:#f3fbff}
+.toolbar .toolbar-button:hover{background:#31556c}
+.link-chip.ok{background:#153f36;color:#83ddba;border-color:#3d9e7e}
+.map-stage{background:#081017}
+.operation-ribbon,.map-tools,.panel-launcher button{
+  background:#162734f5;border:1px solid #496273;border-radius:6px;box-shadow:0 4px 13px #0007
+}
+.operation-ribbon button{color:#dbe8ee}
+.operation-ribbon button.active{background:#355d76;color:#eef8ff!important;border-color:#5799c3}
+.map-tools button.chosen{background:#315d79;color:#edf9ff}
+.float-panel{background:#12212cfa;border:1px solid #496071;
+  box-shadow:0 16px 30px #050b1191;border-radius:7px}
+.panel-title,.control-head{background:#1b2d3a;border-bottom:1px solid #3d5464}
+.plan-panel .major{background:#365e78;color:#f5faff;border-color:#5e9abe}
+.plan-panel .major:hover:not(:disabled){background:#457593}
+.plan-panel .plan-tabs button.active{background:#31566f;color:#f5fcff}
+.plan-panel .route-row.picked{background:#2b3f4c;box-shadow:inset 3px 0 0 #79b6d5}
+.plan-panel .route-total{background:#b7d9eb;color:#142938}
+.instrument-dock{background:#14212c;border-top-color:#3e596b}
+.instrument-dock .dock-readouts>div{border-color:#2c4251}
+.vihanga-waypoint:not(.selected) {background:#cda15a;color:#15222b;box-shadow:0 2px 6px #000a}
+.vihanga-waypoint.compact:not(.selected) {background:#b9dded;border-color:#1b4056}
+.vihanga-waypoint.selected{background:#93d0ed;border-color:#f3fbff;box-shadow:0 0 0 3px #2a748c80,0 3px 10px #000b}
+.network-watch{background:#101f2af4;border-color:#4a6576}
+.network-watch-top{background:#162b39}
+.network-watch-top:hover{background:#223e51}
+.network-watch-details{background:#101f2a}
+.ops-drawer{background:#12222df9;border-left-color:#496577}
+
+/* Planner editing lives above sliders, not hidden below a scroll region. */
+.planner-quick-actions{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:6px;padding:7px 14px 10px;border-bottom:1px solid #354b5a;
+}
+.planner-quick-actions button{
+  text-align:center;padding:8px 6px;min-height:33px;
+  font-size:11px;font-weight:700;color:#cfdfeb;
+  background:#233b4a;border:1px solid #476779;border-radius:4px;
+}
+.planner-quick-actions button:hover:not(:disabled){
+  border-color:#80b9d5;background:#31536a
+}
+.planner-quick-actions .planner-reset{background:#25313a;color:#e0bbb1;border-color:#71514e}
+.planner-quick-actions .planner-reset:hover:not(:disabled){background:#493a39;border-color:#b9847b}
+.planner-quick-actions button:disabled{opacity:.35}
+.plan-panel .panel-section-label{color:#b7d0df}
+@media(max-width:680px){
+  .identity{padding:5px 7px;gap:5px}
+  .identity .vihanga-logo{width:34px;height:34px}
+  .planner-quick-actions{padding:6px 10px}
+}
