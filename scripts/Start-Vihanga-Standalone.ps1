@@ -3,6 +3,9 @@
 param(
     [switch]$ApiOnly,
     [switch]$SkipInstall,
+    [switch]$Dev,
+    [switch]$Rebuild,
+    [switch]$NoOpen,
     [switch]$BenchRead,
     [switch]$PropellersRemoved
 )
@@ -11,9 +14,14 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $python = Join-Path $root ".venv\Scripts\python.exe"
 $backend = Join-Path $root "backend"
 $console = Join-Path $root "console"
+$dist = Join-Path $console "dist"
 $logs = Join-Path $root "data\launcher-logs"
-$apiUrl = "http://127.0.0.1:8010/api/v1/health"
-$uiUrl = "http://127.0.0.1:5173/"
+$apiOrigin = "http://127.0.0.1:8010"
+$apiUrl = "$apiOrigin/api/v1/health"
+$uiUrl = if ($Dev) { "http://127.0.0.1:5173/" } else { "$apiOrigin/" }
+
+if ($ApiOnly -and ($Dev -or $Rebuild)) { throw "-ApiOnly cannot be combined with -Dev or -Rebuild." }
+if ($Rebuild -and $SkipInstall) { throw "-Rebuild and -SkipInstall are mutually exclusive." }
 
 if ($BenchRead) {
     if (-not $PropellersRemoved) {
@@ -41,7 +49,10 @@ function Test-VihangaConsole {
         return $false
     }
     if ($reply.StatusCode -ne 200 -or $reply.Content -notmatch "Vihanga \| Operations Console") {
-        throw "Port 5173 responded, but the website is not the Vihanga console."
+        throw "Unexpected console response at $uiUrl."
+    }
+    if (-not $Dev -and $reply.Headers["X-Vihanga-Console"] -ne "production") {
+        throw "Expected a production console response at $uiUrl."
     }
     return $true
 }
@@ -72,10 +83,39 @@ function Wait-VihangaConsole {
         (Get-Content -LiteralPath $ErrorLog -Tail 16 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
     } else { "No stderr log recorded." }
     try { if (-not $Process.HasExited) { Stop-Process -Id $Process.Id -Force } } catch {}
-    throw "Vihanga console failed startup on 127.0.0.1:5173. Log: $ErrorLog $diagnostic"
+    throw "Vihanga console failed startup at $uiUrl. Log: $ErrorLog $diagnostic"
+}
+
+function Invoke-VihangaNpm {
+    param([string[]]$TaskArgs)
+    if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
+        throw "Install Node.js 20+ to build or develop the console."
+    }
+    Push-Location $console
+    try {
+        & npm.cmd @TaskArgs
+        if ($LASTEXITCODE -ne 0) { throw "npm $($TaskArgs -join ' ') failed." }
+    } finally { Pop-Location }
 }
 
 $health = Get-VihangaHealth
+if (-not $ApiOnly -and -not $Dev) {
+    if ($health -and $health.console_served -ne $true) {
+        throw "The API on port 8010 is running in API-only mode. Stop that instance before starting the station, or use -Dev."
+    }
+    if ($health -and $Rebuild) {
+        throw "Stop the running station before rebuilding its console."
+    }
+    if (-not $health -and ($Rebuild -or -not (Test-Path (Join-Path $dist "index.html")) -or -not (Test-Path (Join-Path $dist "assets") -PathType Container))) {
+        if ($SkipInstall) { throw "Compiled console missing at $dist. Run once without -SkipInstall." }
+        Write-Host "[1/3] Building the production console" -ForegroundColor Cyan
+        Invoke-VihangaNpm -TaskArgs @("ci", "--no-audit", "--no-fund")
+        Invoke-VihangaNpm -TaskArgs @("run", "build")
+    } else {
+        Write-Host "[1/3] Production console available" -ForegroundColor Cyan
+    }
+}
+
 if (-not $health) {
     if (-not (Test-Path $python)) {
         if ($SkipInstall) {
@@ -87,7 +127,12 @@ if (-not $health) {
         & py -3 -m venv (Join-Path $root ".venv")
         if ($LASTEXITCODE -ne 0) { throw "Python environment creation failed." }
     }
-    if (-not $SkipInstall) {
+    $hasBackend = $false
+    if (-not $SkipInstall -and -not $Rebuild -and (Test-Path $python)) {
+        & $python -c "from importlib.util import find_spec; raise SystemExit(0 if find_spec('vihanga') else 1)"
+        $hasBackend = $LASTEXITCODE -eq 0
+    }
+    if (-not $SkipInstall -and -not $hasBackend) {
         & $python -m pip install -e $backend
         if ($LASTEXITCODE -ne 0) { throw "Backend dependency installation failed." }
     }
@@ -95,7 +140,13 @@ if (-not $health) {
     $apiStdout = Join-Path $logs "api.stdout.log"
     $apiStderr = Join-Path $logs "api.stderr.log"
     $apiArgs = @("-m", "uvicorn", "vihanga.app:app", "--host", "127.0.0.1", "--port", "8010", "--no-access-log")
-    $apiProcess = Start-Process -FilePath $python -ArgumentList $apiArgs -WorkingDirectory $root -PassThru -RedirectStandardOutput $apiStdout -RedirectStandardError $apiStderr
+    $previousDist = $env:VIHANGA_CONSOLE_DIST
+    try {
+        $env:VIHANGA_CONSOLE_DIST = if ($ApiOnly -or $Dev) { $null } else { $dist }
+        $apiProcess = Start-Process -FilePath $python -ArgumentList $apiArgs -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $apiStdout -RedirectStandardError $apiStderr
+    } finally {
+        $env:VIHANGA_CONSOLE_DIST = $previousDist
+    }
     $health = Wait-VihangaApi -Process $apiProcess -ErrorLog $apiStderr
     Write-Host "Vihanga API started (PID $($apiProcess.Id))." -ForegroundColor Green
 } else {
@@ -103,38 +154,36 @@ if (-not $health) {
 }
 
 if ($BenchRead) {
-    $caps = Invoke-RestMethod -Uri "http://127.0.0.1:8010/api/v1/capabilities" -TimeoutSec 4
-    if ($caps.bench_nonactuating_requests -ne $true) {
+    if ($health.bench_read_configured -ne $true) {
         throw "Existing API was started without bench-read mode. Stop that API and relaunch with -BenchRead -PropellersRemoved. No request was sent."
     }
 }
-Write-Host "Local API confirmed: $apiUrl" -ForegroundColor Green
+Write-Host "[2/3] Local API ready at $apiUrl" -ForegroundColor Green
 if ($ApiOnly) { return }
 
-if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
-    throw "npm unavailable. Install Node.js 20+ for the operator console."
-}
-if (-not $SkipInstall) {
-    Push-Location $console
-    try {
-        & npm.cmd install --no-audit --no-fund
-        if ($LASTEXITCODE -ne 0) { throw "npm installation failed." }
-        & npm.cmd run build
-        if ($LASTEXITCODE -ne 0) { throw "Console build failed." }
-    } finally {
-        Pop-Location
+if ($Dev -and -not (Test-VihangaConsole)) {
+    if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
+        throw "Install Node.js 20+ to run the development console."
     }
-}
-if (-not (Test-VihangaConsole)) {
+    if (-not $SkipInstall) { Invoke-VihangaNpm -TaskArgs @("ci", "--no-audit", "--no-fund") }
     New-Item -ItemType Directory -Path $logs -Force | Out-Null
     $uiStdout = Join-Path $logs "console.stdout.log"
     $uiStderr = Join-Path $logs "console.stderr.log"
-    $uiProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/d", "/c", "npm.cmd run dev -- --strictPort" -WorkingDirectory $console -PassThru -RedirectStandardOutput $uiStdout -RedirectStandardError $uiStderr
+    $uiProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/d", "/c", "npm.cmd run dev -- --strictPort" -WorkingDirectory $console -WindowStyle Hidden -PassThru -RedirectStandardOutput $uiStdout -RedirectStandardError $uiStderr
     Wait-VihangaConsole -Process $uiProcess -ErrorLog $uiStderr
     Write-Host "Vihanga console started (PID $($uiProcess.Id))." -ForegroundColor Green
-} else {
-    Write-Host "Using existing Vihanga console." -ForegroundColor Cyan
+} elseif (-not (Test-VihangaConsole)) {
+    throw "The production console at $uiUrl failed its readiness check. See $logs."
 }
-Write-Host "OPEN: $uiUrl" -ForegroundColor Green
+Write-Host "[3/3] Station ready at $uiUrl" -ForegroundColor Green
 Write-Host "LOGS: $logs" -ForegroundColor DarkGray
-Write-Host "Flight-control authority is governed separately; launch options cannot bypass it."
+if (-not $NoOpen) {
+    $edge = if (${env:ProgramFiles(x86)}) {
+        Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe"
+    }
+    if (-not $Dev -and $edge -and (Test-Path $edge -PathType Leaf)) {
+        Start-Process -FilePath $edge -ArgumentList "--app=$uiUrl"
+    } else {
+        Start-Process $uiUrl
+    }
+}

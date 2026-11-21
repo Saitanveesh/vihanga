@@ -172,8 +172,10 @@ class CircularSurveyRequest(StrictModel):
 
 def compute_circular(request: CircularSurveyRequest) -> dict:
     pts = [(p.latitude, p.longitude) for p in request.polygon]
-    if len(set(pts)) != len(pts):
-        raise ValueError("Repeated or identical polygon vertices")
+    if pts[0] == pts[-1]:
+        pts.pop()
+    if len(pts) < 3 or len(set(pts)) != len(pts):
+        raise ValueError("Circular survey requires distinct polygon vertices")
     lat0 = sum(p[0] for p in pts) / len(pts)
     lon0 = sum(p[1] for p in pts) / len(pts)
     if abs(lat0) >= 85 or max(p[1] for p in pts) - min(p[1] for p in pts) > 0.1:
@@ -184,21 +186,25 @@ def compute_circular(request: CircularSurveyRequest) -> dict:
     if max(x for x, _ in poly) - min(x for x, _ in poly) > 5000 or max(y for _, y in poly)-min(y for _, y in poly)>5000:
         raise ValueError("Survey exceeds 5km local planning bounds")
     n = len(poly)
-    cross = [_cross(poly[i],poly[(i+1)%n],poly[(i+2)%n]) for i in range(n)]
-    if not (all(x > 0.000001 for x in cross) or all(x < -0.000001 for x in cross)):
-        raise ValueError("Circular survey requires a strictly convex polygon")
-    # The arithmetic vertex centroid is inside a strictly convex polygon.
-    center_x = sum(x for x, _ in poly)/n
-    center_y = sum(y for _, y in poly)/n
+    orientation = 1 if _cross(poly[0], poly[1], poly[2]) > 0 else -1
+    center_x = sum(x for x, _ in poly) / n
+    center_y = sum(y for _, y in poly) / n
+    center = (center_x, center_y)
     distances = []
-    for i in range(n):
-        ax, ay = poly[i]
-        bx, by = poly[(i+1)%n]
-        length = sqrt((bx-ax)**2 + (by-ay)**2)
+    for i, a in enumerate(poly):
+        end = (i + 1) % n
+        b = poly[end]
+        length = sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2)
         if length < 0.1:
             raise ValueError("Polygon edge too small")
-        distances.append(abs((bx-ax)*(center_y-ay) - (by-ay)*(center_x-ax)) / length)
-    radius = min(distances) - 1.0   # keep a 1m visual buffer from polygon edge
+        # Every edge must enclose every other vertex on its inward side.
+        # Local turns alone can also describe a self-crossing star.
+        if any(orientation * _cross(a, b, vertex) <= 1e-6
+               for k, vertex in enumerate(poly) if k not in (i, end)):
+            raise ValueError("Circular survey requires a simple, strictly convex boundary")
+        distances.append(orientation * _cross(a, b, center) / length)
+    # The loops and their straight connectors lie inside the same inscribed disk.
+    radius = min(distances) - 1.0
     if radius < request.spacing_m * 0.6:
         raise ValueError("Survey polygon too small for selected circular spacing")
     radii = []
@@ -215,7 +221,8 @@ def compute_circular(request: CircularSurveyRequest) -> dict:
         count = per_ring + 1
         for j in range(count):
             t = 2*pi*j/per_ring
-            if index % 2: t = -t
+            if index % 2:
+                t = -t
             x = center_x + r*cos(t)
             y = center_y + r*sin(t)
             points.append({
@@ -234,7 +241,7 @@ def compute_circular(request: CircularSurveyRequest) -> dict:
         "polygon": [p.model_dump() for p in request.polygon],
         "requires_route_review": True,
         "status": "PREVIEW_ONLY", "pattern": "CIRCULAR",
-        "coverage_note": "Inscribed concentric loops only; polygon corners are not covered"
+        "coverage_note": "Straight links join the inscribed loops. Polygon corners are not covered."
     }
 
 

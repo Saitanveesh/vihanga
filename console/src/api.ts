@@ -96,8 +96,15 @@ export interface Telemetry {
   active_source?: "PRIMARY" | "BACKUP";
   primary_status?: string;
   primary_transport?: string | null;
+  primary_error_code?: string | null;
   primary_heartbeat_fresh?: boolean;
   primary_attitude_fresh?: boolean;
+  primary_frame_rate_5s_hz?: number | null;
+  primary_age_ms?: number | null;
+  primary_system_id?: number | null;
+  primary_frames_total?: number | null;
+  primary_reconnect_attempt?: number | null;
+  primary_path_evidence?: PathEvidence | null;
   backup_status?: string;
   backup_transport?: string | null;
   backup_error_code?: string | null;
@@ -105,6 +112,10 @@ export interface Telemetry {
   backup_attitude_fresh?: boolean;
   backup_frame_rate_5s_hz?: number | null;
   backup_age_ms?: number | null;
+  backup_system_id?: number | null;
+  backup_frames_total?: number | null;
+  backup_reconnect_attempt?: number | null;
+  backup_path_evidence?: PathEvidence | null;
   airspeed_mps: number | null;
   throttle_pct: number | null;
   frame_rate_5s_hz: number;
@@ -153,7 +164,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: { "Content-Type": "application/json", ...(init?.headers || {}) }
     });
   } catch {
-    throw new Error("Vihanga API unavailable. Start the backend on 127.0.0.1:8010.");
+    throw new Error("The local Vihanga operations API is unreachable.");
   }
   const data: unknown = await response.json();
   if (!response.ok) {
@@ -171,11 +182,79 @@ export interface HostSerialPorts {
   scope: "API_HOST_ONLY";
 }
 export const getHostSerialPorts = () => request<HostSerialPorts>("serial/ports");
-export const getHealth = () => request<Health>("health");
-export const getVehicles = () => request<Vehicle[]>("vehicles");
-export const getMissions = () => request<Mission[]>("missions");
+export const getHealth = (signal?: AbortSignal) => request<Health>("health", { signal, cache: "no-store" });
+export const getVehicles = (signal?: AbortSignal) => request<Vehicle[]>("vehicles", { signal, cache: "no-store" });
+export const getMissions = (signal?: AbortSignal) => request<Mission[]>("missions", { signal, cache: "no-store" });
 export const getTelemetry = (id: string) => request<Telemetry>("telemetry/" + encodeURIComponent(id));
-export const getFleetTelemetry = () => request<Record<string, Telemetry>>("fleet/telemetry");
+export const getFleetTelemetry = (signal?: AbortSignal) => request<Record<string, Telemetry>>("fleet/telemetry", { signal, cache: "no-store" });
+
+export const benchDurations = [30, 60, 120, 300] as const;
+export type BenchDuration = typeof benchDurations[number];
+export type BenchRole = "primary" | "backup";
+
+export interface PathEvidence {
+  diagnosis: "EDGE_UPLINK_OFFLINE" | "UART_WAITING" | "EDGE_TO_RELAY_STALE" |
+    "RELAY_TO_STATION_STALE" | "THREE_LEGS_OBSERVED" | "UPSTREAM_EVIDENCE_PARTIAL";
+  relay: { online: boolean; received: number; rejected: number; viewer_dropped: number; packet_age_ms: number | null };
+  edge: { uart_open: boolean; uart_bytes: number; uart_accepted: number; uart_rejected: number;
+    uart_age_ms: number | null; uplink_sent: number; uplink_dropped: number } | null;
+}
+
+export interface BenchReceiver {
+  status: string;
+  transport: string | null;
+  heartbeat_fresh: boolean;
+  attitude_fresh: boolean;
+  age_ms: number | null;
+  frame_rate_hz: number | null;
+  error_code: string | null;
+  system_id: number | null;
+  frames_total?: number | null;
+  reconnect_attempt?: number | null;
+  path_evidence?: PathEvidence | null;
+}
+export interface BenchCapture {
+  capture_id: string;
+  vehicle_id: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: BenchDuration;
+  status: "RECORDING" | "COMPLETE" | "STOPPED" | "INTERRUPTED";
+  sample_count: number;
+}
+export interface BenchSample extends Record<BenchRole, BenchReceiver> {
+  elapsed_ms: number;
+  captured_at: string;
+  active_source: "PRIMARY" | "BACKUP" | null;
+}
+interface ReceiverStats {
+  configured_samples: number;
+  live_samples: number;
+  age_samples: number;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  p99_ms: number | null;
+}
+export interface BenchReport {
+  capture: BenchCapture;
+  samples: BenchSample[];
+  summary: Record<BenchRole, ReceiverStats> & {
+    sample_count: number;
+    events: { elapsed_ms: number; field: BenchRole | "active_source"; from: string | null; to: string | null }[];
+  };
+}
+
+const benchPath = (vehicleId: string) => "bench/captures/" + encodeURIComponent(vehicleId);
+const capturePath = (vehicleId: string, captureId: string) => benchPath(vehicleId) + "/" + encodeURIComponent(captureId);
+export const getBenchCaptures = (vehicleId: string, signal?: AbortSignal) =>
+  request<BenchCapture[]>(benchPath(vehicleId), { signal, cache: "no-store" });
+export const getBenchReport = (vehicleId: string, captureId: string, signal?: AbortSignal) =>
+  request<BenchReport>(capturePath(vehicleId, captureId), { signal, cache: "no-store" });
+export const startBenchCapture = (vehicleId: string, duration: BenchDuration) =>
+  jsonPost<BenchCapture>(benchPath(vehicleId), { duration_seconds: duration });
+export const stopBenchCapture = (vehicleId: string, captureId: string) =>
+  jsonPost<BenchReport>(capturePath(vehicleId, captureId) + "/stop", {});
+
 export const registerVehicle = (input: VehicleCreate) => jsonPost<{ vehicle_id: string }>("vehicles", input);
 export const saveMission = (input: MissionCreate) => jsonPost<Mission>("missions", input);
 export const previewSurvey = (input: {
@@ -212,8 +291,8 @@ export interface ObservedTrack {
   count: number;
   warning: string;
 }
-export const getObservedTrack = (id: string) =>
-  request<ObservedTrack>("flight-tracks/" + encodeURIComponent(id));
+export const getObservedTrack = (id: string, signal?: AbortSignal) =>
+  request<ObservedTrack>("flight-tracks/" + encodeURIComponent(id), { signal, cache: "no-store" });
 
 export type OperatorGroup = "FLIGHT" | "NAVIGATION" | "MISSIONS" | "PARAMETERS" | "DIAGNOSTICS" | "SETUP" | "LOGS";
 export type BenchReadKind =

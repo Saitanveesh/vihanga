@@ -39,7 +39,7 @@ git pull --ff-only origin main
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-Vihanga-Standalone.ps1
 ~~~
 
-Open **http://127.0.0.1:5173** (console) and **http://127.0.0.1:8010/api/v1/health** (local API). The Windows launcher checks readiness and records startup errors in `data/launcher-logs/`; it will not silently claim a service started. Its `-ApiOnly` and `-SkipInstall` switches support focused local diagnosis.
+The launcher opens the compiled ground station at **http://127.0.0.1:8010/**. It checks the console bundle, local service identity and served application before opening the window. The startup screen then checks the API, aircraft directory and mission storage. Startup logs are under `data/launcher-logs/`. The existing development console remains available through `-Dev` at **http://127.0.0.1:5173/**. See [Station deployment](docs/STATION_DEPLOYMENT.md) for Ubuntu, flags and offline operation.
 
 For approved **propeller-free local USB information requests only**, use `-BenchRead -PropellersRemoved` when starting the launcher, then connect a DISARMED Pixhawk through the GCS Serial/USB receiver. A pre-existing server without this opt-in must be explicitly stopped; the launcher does not change its configuration secretly. Bench read opt-in is not remote ARM/LAND authority. These ports must remain bound to loopback; do not expose the local development API to the internet.
 
@@ -52,6 +52,10 @@ For approved **propeller-free local USB information requests only**, use `-Bench
 5. A **LIVE** indication requires fresh heartbeat and attitude packets from the expected FC identity. Positions require a validated GPS fix. Disconnect and reconnection invalidate cached instrument data.
 6. In **Connections**, configure a PRIMARY receiver first and a BACKUP of a different transport class with the same FC MAVLink system ID. The backup remains independently connected but **is not automatically selected**. Open **Diagnostics** to inspect both receivers; choose **Use backup** only after it reports fresh HEARTBEAT and ATTITUDE. Use **Restore primary** when the primary independently becomes LIVE. Removing a backup does not send any aircraft command. A secondary serial connection needs its own COM port; other applications must release it.
 7. RF RSSI values are uncalibrated MAVLink RADIO_STATUS readings (not percent or dBm). Sensor health comes only from actual SYS_STATUS bitmasks and displays unavailable where unreported.
+
+The Flight workspace shows ground speed, vertical speed, attitude, heading, altitude, battery and GNSS. **Telemetry trends** compares the latest 30 or 120 seconds of live samples and exports the selected time window as CSV. Switch the map to **Offline** to view routes and tracks without online basemap tiles.
+
+Open **Bench** to compare primary and backup receivers, record a timed station capture, and review receiver changes. The station stores the latest 20 captures locally. See [Bench verification and planned upgrades](docs/BENCH_VERIFICATION.md).
 
 Create survey polygons and waypoint missions in PLAN. They are **offline drafts** and must be independently checked for terrain, altitude limits, obstacles, geofences and airspace before any future mission upload. The camera tab opens a configured private viewing endpoint; it does not imply a camera control or flight command channel.
 
@@ -86,7 +90,7 @@ Run from the repository root:
 python -m pip install -e ".\backend[dev]" -e ".\cloud[dev]" -e ".\edge[dev]"
 python -m pytest -q backend/tests cloud/tests edge/tests integration/tests
 cd console
-npm install --no-audit --no-fund
+npm ci --no-audit --no-fund
 npm run test
 npm run build
 ~~~

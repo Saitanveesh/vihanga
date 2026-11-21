@@ -57,3 +57,33 @@ def test_edge_configuration_requires_wss_and_strong_token():
     ):
         with pytest.raises(ValueError):
             Settings(**{**good, **patch}).validate()
+
+
+def test_uplink_backoff_grows_when_idle_socket_keeps_closing(monkeypatch):
+    import asyncio
+    from vihanga_edge import agent
+
+    delays = []
+    class Socket:
+        subprotocol = None
+        close_code = 1001
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            pass
+
+    async def observe_delay(delay):
+        delays.append(delay)
+        if len(delays) == 6:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(agent, "connect", lambda *a, **k: Socket())
+    monkeypatch.setattr(agent, "uniform", lambda *_: 1)
+    monkeypatch.setattr(agent.asyncio, "sleep", observe_delay)
+    settings = Settings("AIR-001", 1, "/dev/ttyAMA0", 57600,
+                        "wss://test.ts.net/ws/v1/device/AIR-001", "x" * 40)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(agent.CloudUplink().run(settings))
+    assert delays == [2, 4, 8, 16, 20, 20]

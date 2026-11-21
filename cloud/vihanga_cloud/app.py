@@ -17,11 +17,14 @@ import re
 import time
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
+from vihanga_cloud.credentials import CredentialFile
 
 MAX_VIEWERS_PER_AIRCRAFT = 16
 VIEWER_SEND_TIMEOUT_SECONDS = 2.0
+DIAGNOSTICS_PROTOCOL = "vihanga-diagnostics.v1"
+EDGE_COUNTERS = ("uart_bytes", "uart_accepted", "uart_rejected", "uplink_sent", "uplink_dropped")
 
 VEHICLE_ID = re.compile(r"^[A-Z0-9][A-Z0-9_-]{2,31}$")
 ACCEPTED_TYPES = frozenset({
@@ -67,11 +70,49 @@ class Slot:
     frames_rejected: int = 0
     last_heartbeat: float = 0.0
     last_attitude: float = 0.0
+    last_packet: float | None = None
+    edge_at: float | None = None
+    edge_evidence: dict | None = None
     viewer_frames_dropped: int = 0
     viewer_send_timeouts: int = 0
     message_counts: Counter[str] = field(default_factory=Counter)
     viewers: set[asyncio.Queue] = field(default_factory=set)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    def record_edge(self, raw: str) -> None:
+        try:
+            if len(raw) > 512:
+                raise ValueError
+            data = json.loads(raw)
+            if (not isinstance(data, dict)
+                    or set(data) != {"version", "uart_open", "uart_age_ms", *EDGE_COUNTERS}
+                    or type(data["version"]) is not int or data["version"] != 1 or type(data["uart_open"]) is not bool):
+                raise ValueError
+            for key in (*EDGE_COUNTERS, "uart_age_ms"):
+                value = data[key]
+                if key == "uart_age_ms" and value is None:
+                    continue
+                if type(value) is not int or not 0 <= value <= 2**53 - 1:
+                    raise ValueError
+            self.edge_evidence, self.edge_at = data, time.monotonic()
+        except (ValueError, TypeError):
+            self.frames_rejected += 1
+
+    def diagnostics(self) -> dict:
+        now = time.monotonic()
+        edge_age = round((now - self.edge_at) * 1000) if self.edge_at is not None else None
+        return {
+            "version": 1,
+            "vehicle_id": self.identity.vehicle_id,
+            "relay": {
+                "online": self.device_connected, "epoch": self.epoch,
+                "received": self.frames_received, "rejected": self.frames_rejected,
+                "viewer_dropped": self.viewer_frames_dropped,
+                "packet_age_ms": round((now - self.last_packet) * 1000) if self.last_packet is not None else None,
+            },
+            "edge_report_age_ms": edge_age,
+            "edge": self.edge_evidence if edge_age is not None and edge_age <= 6000 else None,
+        }
 
     def status(self) -> dict[str, Any]:
         now = time.monotonic()
@@ -111,6 +152,7 @@ class Slot:
             self.frames_rejected += 1
             return None
         now = time.monotonic()
+        self.last_packet = now
         self.frames_received += 1
         self.message_counts[typ] += 1
         if typ == "HEARTBEAT":
@@ -121,7 +163,7 @@ class Slot:
 
 
 class Broker:
-    def __init__(self, identities: list[AircraftIdentity]):
+    def __init__(self, identities: list[AircraftIdentity], credential_file: CredentialFile | None = None):
         if not 1 <= len(identities) <= 100:
             raise ValueError("Configure between 1 and 100 aircraft")
         if len(set(i.vehicle_id for i in identities)) != len(identities):
@@ -131,16 +173,29 @@ class Broker:
         if len(set(credentials)) != len(credentials):
             raise ValueError("Credential digests must be unique across all aircraft and roles")
         self.slots = {i.vehicle_id: Slot(i) for i in identities}
+        self.credential_file = credential_file
 
     def authorize(self, vehicle_id: str, token: str, viewer: bool = False) -> Slot | None:
         slot = self.slots.get(vehicle_id)
-        if slot is None or not isinstance(token, str) or len(token) < 32:
+        if slot is None or not isinstance(token, str) or not 32 <= len(token) <= 512:
             return None
+        if self.credential_file:
+            return slot if self.credential_file.authorize(vehicle_id, "viewer" if viewer else "device", token) else None
         expected = slot.identity.viewer_token_hash if viewer else slot.identity.device_token_hash
         return slot if hmac.compare_digest(digest(token), expected) else None
 
 
 def from_environment() -> Broker:
+    filename = os.environ.get("VIHANGA_CLOUD_CREDENTIALS_FILE")
+    if filename:
+        try:
+            credentials = CredentialFile(filename)
+            identities = [AircraftIdentity(vehicle, system, organization,
+                                          digest(vehicle + "/device"), digest(vehicle + "/viewer"))
+                          for vehicle, (system, organization) in credentials.topology.items()]
+            return Broker(identities, credentials)
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            raise RuntimeError("Invalid version 2 Vihanga credential file") from exc
     raw = os.environ.get("VIHANGA_CLOUD_AIRCRAFT_JSON", "")
     if not raw:
         raise RuntimeError("VIHANGA_CLOUD_AIRCRAFT_JSON is required; refusing open relay")
@@ -160,7 +215,7 @@ def from_environment() -> Broker:
         raise RuntimeError("Invalid Vihanga aircraft identity configuration") from exc
 
 
-def bearer(ws: WebSocket, kind: str) -> str:
+def bearer(ws: WebSocket | Request, kind: str) -> str:
     if kind == "device":
         return ws.headers.get("x-vihanga-device-token", "")
     auth = ws.headers.get("authorization", "")
@@ -178,9 +233,18 @@ def create_app(broker: Broker | None = None) -> FastAPI:
                 "provisioned_aircraft": len(broker.slots),
                 "flight_control_enabled": False}
 
+    @app.get("/api/v1/diagnostics/{vehicle_id}")
+    async def diagnostics(vehicle_id: str, request: Request, response: Response):
+        slot = broker.authorize(vehicle_id, bearer(request, "viewer"), viewer=True)
+        if slot is None:
+            raise HTTPException(401, "Viewer authentication required")
+        response.headers["Cache-Control"] = "no-store"
+        return slot.diagnostics()
+
     @app.websocket("/ws/v1/device/{vehicle_id}")
     async def device(ws: WebSocket, vehicle_id: str):
-        slot = broker.authorize(vehicle_id, bearer(ws, "device"))
+        token = bearer(ws, "device")
+        slot = broker.authorize(vehicle_id, token)
         if slot is None:
             await ws.close(code=4401)
             return
@@ -191,14 +255,28 @@ def create_app(broker: Broker | None = None) -> FastAPI:
             slot.device_connected = True
             slot.epoch += 1
             slot.last_heartbeat = slot.last_attitude = 0.0
+            slot.last_packet = slot.edge_at = slot.edge_evidence = None
             parser = mavlink.MAVLink(None)
             epoch = slot.epoch
         try:
-            await ws.accept()
+            diagnostics = DIAGNOSTICS_PROTOCOL in ws.scope.get("subprotocols", [])
+            await ws.accept(subprotocol=DIAGNOSTICS_PROTOCOL if diagnostics else None)
             while True:
-                message = await ws.receive()
+                if broker.authorize(vehicle_id, token) is None:
+                    await ws.close(code=4401)
+                    break
+                try:
+                    message = await asyncio.wait_for(ws.receive(), 1.0)
+                except TimeoutError:
+                    continue
                 if message.get("type") == "websocket.disconnect":
                     break
+                if broker.authorize(vehicle_id, token) is None:
+                    await ws.close(code=4401)
+                    break
+                if diagnostics and message.get("text") is not None:
+                    slot.record_edge(message["text"])
+                    continue
                 raw = message.get("bytes")
                 verified = slot.validate(raw, parser)
                 if verified is None:
@@ -218,6 +296,7 @@ def create_app(broker: Broker | None = None) -> FastAPI:
                     slot.device_connected = False
                     slot.epoch += 1
                     slot.last_heartbeat = slot.last_attitude = 0.0
+                    slot.last_packet = slot.edge_at = slot.edge_evidence = None
                     for queue in tuple(slot.viewers):
                         slot.viewer_frames_dropped += queue.qsize()
                         while not queue.empty():
@@ -225,7 +304,8 @@ def create_app(broker: Broker | None = None) -> FastAPI:
 
     @app.websocket("/ws/v1/view/{vehicle_id}")
     async def viewer(ws: WebSocket, vehicle_id: str):
-        slot = broker.authorize(vehicle_id, bearer(ws, "viewer"), viewer=True)
+        token = bearer(ws, "viewer")
+        slot = broker.authorize(vehicle_id, token, viewer=True)
         if slot is None:
             await ws.close(code=4401)
             return
@@ -238,6 +318,9 @@ def create_app(broker: Broker | None = None) -> FastAPI:
         try:
             await ws.accept()
             while True:
+                if broker.authorize(vehicle_id, token, viewer=True) is None:
+                    close_code = 4401
+                    break
                 wait_for_disconnect = asyncio.create_task(ws.receive())
                 wait_for_frame = asyncio.create_task(queue.get())
                 try:
@@ -256,6 +339,9 @@ def create_app(broker: Broker | None = None) -> FastAPI:
                         break
                     # A viewer NEVER sends commands to device sockets.
                 if wait_for_frame in done:
+                    if broker.authorize(vehicle_id, token, viewer=True) is None:
+                        close_code = 4401
+                        break
                     epoch, time_received, packet = wait_for_frame.result()
                     if (slot.device_connected and slot.epoch == epoch and
                             time.monotonic() - time_received <= 1.5):

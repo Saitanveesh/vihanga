@@ -208,6 +208,7 @@ def test_slow_viewer_overflow_timeout_and_task_cleanup(monkeypatch):
         class Socket:
             def __init__(self, headers):
                 self.headers = headers
+                self.scope = {}
                 self.inbox = asyncio.Queue()
                 self.accepted = asyncio.Event()
                 self.sending = asyncio.Event()
@@ -215,7 +216,7 @@ def test_slow_viewer_overflow_timeout_and_task_cleanup(monkeypatch):
                 self.receives = 0
                 self.closed = None
 
-            async def accept(self):
+            async def accept(self, subprotocol=None):
                 self.accepted.set()
 
             async def receive(self):
