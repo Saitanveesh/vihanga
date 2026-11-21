@@ -23,10 +23,16 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from vihanga.bench import BenchRecorder, CaptureBusy
 from vihanga.survey import router as survey_router
 from vihanga.operator_contract import BenchQuery, catalog
 from vihanga.telemetry import BrokerConnect, CloudConnect, LanConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+LOCAL_BROWSER_ORIGINS = {
+    "http://127.0.0.1:5173", "http://localhost:5173",
+    "http://127.0.0.1:8010", "http://localhost:8010",
+}
 
 
 def now_utc() -> str:
@@ -42,6 +48,10 @@ class VehicleCreate(StrictModel):
     label: str = Field(min_length=3, max_length=80)
     autopilot: Literal["ARDUPILOT", "PX4", "OTHER"]
     interface: Literal["UART", "USB", "ETHERNET", "OTHER"]
+
+
+class BenchCaptureCreate(StrictModel):
+    duration_seconds: Literal[30, 60, 120, 300]
 
 
 class Waypoint(StrictModel):
@@ -106,6 +116,7 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
                        allowed_hosts=["127.0.0.1", "localhost", "testserver"])
     links = LinkManager()
     app.state.links = links
+    bench = BenchRecorder(db, links.snapshot)
     app.include_router(survey_router)
     dist_setting = console_dist if console_dist is not None else os.environ.get("VIHANGA_CONSOLE_DIST")
     dist = Path(dist_setting).resolve() if dist_setting else None
@@ -303,10 +314,7 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
     async def live_telemetry_socket(socket: WebSocket, vehicle_id: str):
         # Browsers can open cross-origin WebSockets without a CORS preflight.
         origin = socket.headers.get("origin")
-        if origin is not None and origin not in {
-            "http://127.0.0.1:5173", "http://localhost:5173",
-            "http://127.0.0.1:8010", "http://localhost:8010",
-        }:
+        if origin is not None and origin not in LOCAL_BROWSER_ORIGINS:
             await socket.close(code=1008)
             return
         with db() as con:
@@ -324,9 +332,47 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
 
     @app.on_event("shutdown")
     async def stop_links():
+        await bench.close()
         for vehicle_id in tuple(links.sessions):
             await links.stop(vehicle_id)
 
+    def require_station_origin(request: Request):
+        origin = request.headers.get("origin")
+        if origin and origin not in LOCAL_BROWSER_ORIGINS:
+            raise HTTPException(status_code=403, detail="Browser origin not approved")
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            raise HTTPException(status_code=403, detail="Cross-site bench requests rejected")
+
+    @app.get("/api/v1/bench/captures/{vehicle_id}")
+    def bench_captures(vehicle_id: str):
+        require_vehicle(vehicle_id)
+        return bench.list(vehicle_id)
+
+    @app.post("/api/v1/bench/captures/{vehicle_id}", status_code=201)
+    async def start_bench_capture(vehicle_id: str, payload: BenchCaptureCreate, request: Request):
+        require_station_origin(request)
+        require_vehicle(vehicle_id)
+        try:
+            return bench.start(vehicle_id, payload.duration_seconds)
+        except CaptureBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/v1/bench/captures/{vehicle_id}/{capture_id}")
+    def bench_capture(vehicle_id: str, capture_id: str):
+        require_vehicle(vehicle_id)
+        report = bench.detail(vehicle_id, capture_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Bench capture not found")
+        return report
+
+    @app.post("/api/v1/bench/captures/{vehicle_id}/{capture_id}/stop")
+    async def stop_bench_capture(vehicle_id: str, capture_id: str, request: Request):
+        require_station_origin(request)
+        require_vehicle(vehicle_id)
+        report = await bench.stop(vehicle_id, capture_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Bench capture not found")
+        return report
 
     @app.get("/api/v1/operator/{vehicle_id}/catalog")
     def operator_catalog(vehicle_id: str):
@@ -366,14 +412,7 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
         # No network command route or flight-changing MAVLink writer exists.
         if request.headers.get("x-vihanga-bench-read") != "confirm-non-actuating-request":
             raise HTTPException(status_code=403, detail="Explicit bench read header required")
-        origin = request.headers.get("origin")
-        if origin and origin not in {
-            "http://127.0.0.1:5173", "http://localhost:5173",
-            "http://127.0.0.1:8010", "http://localhost:8010",
-        }:
-            raise HTTPException(status_code=403, detail="Browser origin not approved")
-        if request.headers.get("sec-fetch-site") == "cross-site":
-            raise HTTPException(status_code=403, detail="Cross-site bench requests rejected")
+        require_station_origin(request)
         session = links.active_session(vehicle_id)
         if session is None or session.kind != "LOCAL_SERIAL_RECEIVE":
             raise HTTPException(status_code=409, detail="Local USB serial connection required")

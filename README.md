@@ -55,6 +55,8 @@ For approved **propeller-free local USB information requests only**, use `-Bench
 
 The Flight workspace shows ground speed, vertical speed, attitude, heading, altitude, battery and GNSS. **Telemetry trends** compares the latest 30 or 120 seconds of live samples and exports the selected time window as CSV. Switch the map to **Offline** to view routes and tracks without online basemap tiles.
 
+Open **Bench** to compare primary and backup receivers, record a timed station capture, and review receiver changes. The station stores the latest 20 captures locally. See [Bench verification and planned upgrades](docs/BENCH_VERIFICATION.md).
+
 Create survey polygons and waypoint missions in PLAN. They are **offline drafts** and must be independently checked for terrain, altitude limits, obstacles, geofences and airspace before any future mission upload. The camera tab opens a configured private viewing endpoint; it does not imply a camera control or flight command channel.
 
 ## Data path

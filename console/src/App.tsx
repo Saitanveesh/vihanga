@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { MapPoint } from "./GeoMap";
 import FlightInstruments from "./FlightInstruments";
+import Bench from "./Bench";
 import { currentTelemetry } from "./flightHistory";
 import OperationsPanel from "./OperationsPanel";
 import ControlPanel from "./ControlPanel";
@@ -20,11 +21,11 @@ import {
   type BenchReadKind, type OperatorCatalog, type ParameterReadback
 } from "./api";
 
-type Section = "FLIGHT" | "CONTROL" | "PLAN" | "FLEET" | "LINK" | "HISTORY" | "VIDEO";
+type Section = "FLIGHT" | "CONTROL" | "PLAN" | "FLEET" | "LINK" | "BENCH" | "HISTORY" | "VIDEO";
 const GeoMap = lazy(() => import("./GeoMap"));
 const sectionTitles: Record<Section, string> = {
   FLIGHT: "Flight monitoring", CONTROL: "Aircraft controls", PLAN: "Mission planning",
-  FLEET: "Aircraft directory", LINK: "Link health", HISTORY: "Mission drafts", VIDEO: "Live video"
+  FLEET: "Aircraft directory", LINK: "Link health", BENCH: "Bench", HISTORY: "Mission drafts", VIDEO: "Live video"
 };
 const VIEWER_SILENCE_MS = 4000;
 const AIRCRAFT_PREFERENCE = "vihanga.station.aircraft";
@@ -36,7 +37,7 @@ const EMPTY_ROUTE: Waypoint[] = [];
 const sections: { label: Section; icon: IconName }[] = [
   { label: "FLIGHT", icon: "flight" }, { label: "CONTROL", icon: "shield" }, { label: "PLAN", icon: "plan" },
   { label: "FLEET", icon: "fleet" }, { label: "LINK", icon: "link" },
-  { label: "HISTORY", icon: "history" }, { label: "VIDEO", icon: "video" }
+  { label: "BENCH", icon: "activity" }, { label: "HISTORY", icon: "history" }, { label: "VIDEO", icon: "video" }
 ];
 
 function readPreference(key: string): string | null {
@@ -757,7 +758,10 @@ export default function App() {
             </button>
           </div>
         </header>
-        <div className={"map-stage " + ((section === "FLIGHT" || section === "PLAN") ? "has-operations" : "")}>
+        {section === "BENCH" && <Bench key={selected} aircraftId={selected} telemetry={primarySample}
+          browserTelemetry={localBrowserSample} activeBrowser={browserSerialSelected}/>}
+        <div hidden={section === "BENCH"}
+          className={"map-stage " + ((section === "FLIGHT" || section === "PLAN") ? "has-operations" : "")}>
           <Suspense fallback={<div className="station-map-error" role="status">Loading map</div>}>
             <GeoMap polygon={section === "PLAN" ? polygon : EMPTY_POLYGON} route={section === "PLAN" || section === "HISTORY" || section === "FLIGHT" ? waypoints : EMPTY_ROUTE}
               track={observedTrack} position={location} drawing={section === "PLAN" && drawMode !== "NONE"}

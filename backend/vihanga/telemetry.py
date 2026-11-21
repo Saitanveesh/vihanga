@@ -488,20 +488,24 @@ class LinkManager:
         manager = self.standby_managers.get(vehicle_id)
         backup = manager.sessions.get(vehicle_id) if manager else None
         role = self.selected_sources.get(vehicle_id, "PRIMARY")
-        active = backup if role == "BACKUP" else primary
-        selected_sample = active.snapshot() if active else {
+        pri = primary.snapshot() if primary else None
+        bak = backup.snapshot() if backup else None
+        active = bak if role == "BACKUP" else pri
+        selected_sample = active if active else {
             "vehicle_id": vehicle_id, "transport": None,
             "status": "OFFLINE", "error_code": None,
             "flight_control_enabled": False, **MAVLinkProjector(1).snapshot()
         }
-        pri = primary.snapshot() if primary else None
-        bak = backup.snapshot() if backup else None
         return {
             **selected_sample, "active_source": role,
             "primary_status": pri["status"] if pri else "OFFLINE",
             "primary_transport": pri["transport"] if pri else None,
+            "primary_error_code": pri["error_code"] if pri else None,
             "primary_heartbeat_fresh": pri["heartbeat_fresh"] if pri else False,
             "primary_attitude_fresh": pri["attitude_fresh"] if pri else False,
+            "primary_frame_rate_5s_hz": pri["frame_rate_5s_hz"] if pri else None,
+            "primary_age_ms": pri["age_ms"] if pri else None,
+            "primary_system_id": primary.projector.system_id if primary else None,
             "backup_status": bak["status"] if bak else "NOT_CONFIGURED",
             "backup_transport": bak["transport"] if bak else None,
             "backup_error_code": bak["error_code"] if bak else None,
@@ -509,6 +513,7 @@ class LinkManager:
             "backup_attitude_fresh": bak["attitude_fresh"] if bak else False,
             "backup_frame_rate_5s_hz": bak["frame_rate_5s_hz"] if bak else None,
             "backup_age_ms": bak["age_ms"] if bak else None,
+            "backup_system_id": backup.projector.system_id if backup else None,
         }
 
     async def start_backup(self, request):
