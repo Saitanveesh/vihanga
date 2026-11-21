@@ -58,7 +58,7 @@ describe("read-only fleet link diagnostics", () => {
       })}
       busy={false} onClose={vi.fn()} onConfigureBackup={onConfigureBackup}
       onSelect={vi.fn()} onRemoveBackup={vi.fn()}/>);
-    expect(screen.getByText("FC CHANNELS RECEIVED")).toBeTruthy();
+    expect(screen.getByText("FC CHANNELS RECEIVED · RF UNVERIFIED")).toBeTruthy();
     expect(screen.getByText("6")).toBeTruthy();
     expect(screen.getAllByText("Not reported").length).toBeGreaterThan(0);
     expect(screen.getByText("No standby receiver")).toBeTruthy();
