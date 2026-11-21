@@ -58,7 +58,7 @@ describe("ConnectionSettings", () => {
     expect(c.onConnect).toHaveBeenCalledWith(expect.objectContaining({
       role: "PRIMARY", method: "UDP", port: 14550, systemId: 1
     }));
-    expect(screen.getByText(/Receive-only telemetry/)).toBeTruthy();
+    expect(screen.getByText(/Telemetry only/)).toBeTruthy();
   });
 
   it("shows clear primary/backup receiver management and refuses replacement", () => {
@@ -82,7 +82,7 @@ describe("ConnectionSettings", () => {
 
   it("does not configure standby without a primary or simulate link failover", () => {
     const c = panel({initialRole:"BACKUP"});
-    expect(screen.getByText(/Connect a primary receiver before configuring/)).toBeTruthy();
+    expect(screen.getByText(/Connect a primary receiver first/)).toBeTruthy();
     expect(screen.queryByRole("button", {name: "Connect backup"})).toBeNull();
     expect(c.onConnect).not.toHaveBeenCalled();
   });
