@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { getHostSerialPorts, type Telemetry } from "./api";
 import UiIcon from "./UiIcon";
+import { getBrowserSerial } from "./BrowserSerial";
 
-export type ConnectionMethod = "SERIAL" | "UDP" | "TCP" | "LAN" | "BROKER" | "CLOUD";
+export type ConnectionMethod = "SERIAL" | "BROWSER_USB" | "UDP" | "TCP" | "LAN" | "BROKER" | "CLOUD";
 export type ConnectionRole = "PRIMARY" | "BACKUP";
 
 export interface ConnectionRequest {
@@ -26,6 +27,7 @@ interface Props {
   busy: boolean;
   error: string;
   onConnect: (request: ConnectionRequest) => Promise<void>;
+  onConnectBrowserSerial: (baud: number, systemId: number, useGranted?: boolean) => Promise<void>;
   onActivate: (role: ConnectionRole) => Promise<void>;
   onRemoveBackup: () => Promise<void>;
   onDisconnect: () => Promise<void>;
@@ -34,7 +36,8 @@ interface Props {
 
 const methods: { id: ConnectionMethod; label: string; description: string;
   icon: "link" | "activity" | "database" | "radio" | "shield" }[] = [
-  { id: "SERIAL", label: "Serial / USB", description: "Direct FC", icon: "link" },
+  { id: "SERIAL", label: "Server USB", description: "GCS API host", icon: "link" },
+  { id: "BROWSER_USB", label: "This PC USB", description: "Chrome / COM6", icon: "radio" },
   { id: "UDP", label: "UDP", description: "Local listener", icon: "activity" },
   { id: "TCP", label: "TCP", description: "Local client", icon: "database" },
   { id: "LAN", label: "Direct Wi-Fi", description: "Private Pi LAN", icon: "radio" },
@@ -97,7 +100,7 @@ export function validateConnection(input: ConnectionRequest): string | null {
 
 export default function ConnectionSettings({
   aircraftName, aircraftId, telemetry, initialRole, busy, error,
-  onConnect, onActivate, onRemoveBackup, onDisconnect, onClose
+  onConnect, onConnectBrowserSerial, onActivate, onRemoveBackup, onDisconnect, onClose
 }: Props) {
   const [role, setRole] = useState<ConnectionRole>(initialRole);
   const [method, setMethod] = useState<ConnectionMethod>(
@@ -115,6 +118,8 @@ export default function ConnectionSettings({
   const [serialScanError, setSerialScanError] = useState("");
   const [serialScanBusy, setSerialScanBusy] = useState(false);
   const [serialScanRevision, setSerialScanRevision] = useState(0);
+  const [grantedBrowserPorts, setGrantedBrowserPorts] = useState(0);
+  const browserSerialAvailable = Boolean(getBrowserSerial());
   const [baud, setBaud] = useState(57600);
   const [port, setPort] = useState(14550);
   const [systemId, setSystemId] = useState(1);
@@ -151,6 +156,15 @@ export default function ConnectionSettings({
     return () => { cancelled = true; };
   }, [method, serialScanRevision]);
 
+  useEffect(() => {
+    if (method !== "BROWSER_USB") return;
+    let cancelled = false;
+    getBrowserSerial()?.getPorts().then(ports => {
+      if (!cancelled) setGrantedBrowserPorts(ports.length);
+    }).catch(() => { if (!cancelled) setGrantedBrowserPorts(0); });
+    return () => { cancelled = true; };
+  }, [method]);
+
   function chooseMethod(next: ConnectionMethod) {
     setMethod(next);
     setOrigin(storedOrigin(next));
@@ -178,6 +192,19 @@ export default function ConnectionSettings({
       role, method, origin: origin.trim(), username: username.trim(),
       password, viewerToken, serialPort: serialPort.trim(), baud, port, systemId
     };
+    if (method === "BROWSER_USB") {
+      if (role !== "BACKUP") {
+        setLocalError("Choose Backup to attach this PC's serial telemetry radio.");
+        return;
+      }
+      if (!browserSerialAvailable) {
+        setLocalError("Chrome Web Serial is unavailable. Use desktop Chrome over HTTPS.");
+        return;
+      }
+      setLocalError("");
+      await onConnectBrowserSerial(baud, systemId);
+      return;
+    }
     const validationError = validateConnection(request);
     if (validationError) { setLocalError(validationError); return; }
     setLocalError("");
@@ -255,6 +282,28 @@ export default function ConnectionSettings({
           className="connection-settings-form">
           <div className="connection-settings-section">
             <span className="connection-settings-label">CONNECTION DETAILS</span>
+            {method === "BROWSER_USB" && <>
+              <label>Telemetry baud rate
+                <select value={baud} onChange={event => setBaud(Number(event.target.value))}>
+                  {[9600,19200,38400,57600,115200,230400,460800,921600].map(value =>
+                    <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
+              <p className="connection-settings-info">
+                This receiver reads USB telemetry directly in Chrome on this Windows laptop.
+                Choose COM6 in Chrome's device picker. Access requires one-time browser permission;
+                the website cannot silently identify or open local COM numbers.
+                The connection is read-only and does not go through Oracle.
+              </p>
+              {grantedBrowserPorts === 1 && <button type="button"
+                className="connection-scan-button" disabled={busy}
+                onClick={() => { void onConnectBrowserSerial(baud,systemId,true); }}>
+                Reconnect authorized USB radio
+              </button>}
+              {!browserSerialAvailable && <p role="alert" className="connection-settings-error">
+                Use a desktop Chromium browser with Web Serial on HTTPS.
+              </p>}
+            </>}
             {method === "SERIAL" && <>
               <div className="connection-settings-field-grid">
                 <label>Detected API-host serial port
@@ -368,8 +417,9 @@ export default function ConnectionSettings({
           <button type="submit" form="connection-settings-form"
             className="connection-primary" disabled={busy || !aircraftId ||
               alreadyConfigured || cannotAddBackup ||
+               (method === "BROWSER_USB" && (role !== "BACKUP" || !browserSerialAvailable)) ||
                (method === "SERIAL" && (!hostSerialPorts.includes(serialPort) || serialScanBusy))}>
-            {busy ? "Connecting…" : role === "PRIMARY" ? "Connect primary" : "Connect backup"}
+            {busy ? "Connecting…" : method === "BROWSER_USB" ? "Select this PC radio" : role === "PRIMARY" ? "Connect primary" : "Connect backup"}
           </button>
         </div>
       </footer>

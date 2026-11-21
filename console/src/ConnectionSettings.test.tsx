@@ -10,6 +10,7 @@ afterEach(() => {
 
 const callbacks = () => ({
   onConnect: vi.fn().mockResolvedValue(undefined),
+  onConnectBrowserSerial: vi.fn().mockResolvedValue(undefined),
   onActivate: vi.fn().mockResolvedValue(undefined),
   onRemoveBackup: vi.fn().mockResolvedValue(undefined),
   onDisconnect: vi.fn().mockResolvedValue(undefined),
@@ -40,7 +41,7 @@ describe("ConnectionSettings", () => {
   it("provides six real transport options and readable local UDP fields", async () => {
     const c = panel();
     expect(screen.getByRole("dialog", {name: "Connection settings"})).toBeTruthy();
-    for (const label of ["Serial / USB", "UDP", "TCP", "Direct Wi-Fi",
+    for (const label of ["Server USB", "This PC USB", "UDP", "TCP", "Direct Wi-Fi",
        "Vihanga Cloud", "Private relay"]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
