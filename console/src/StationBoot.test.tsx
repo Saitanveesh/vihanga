@@ -6,15 +6,15 @@ import { getHealth, getMissions, getVehicles } from "./api";
 
 vi.mock("./api", () => ({ getHealth: vi.fn(), getVehicles: vi.fn(), getMissions: vi.fn() }));
 
-const initialAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
+const initialAnimate = Object.getOwnPropertyDescriptor(Element.prototype, "animate");
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.resetAllMocks();
-  if (initialAnimate) Object.defineProperty(HTMLElement.prototype, "animate", initialAnimate);
-  else Reflect.deleteProperty(HTMLElement.prototype, "animate");
+  if (initialAnimate) Object.defineProperty(Element.prototype, "animate", initialAnimate);
+  else Reflect.deleteProperty(Element.prototype, "animate");
 });
 
 function Harness({ result }: { result: (value: BootData) => void }) {
@@ -36,11 +36,11 @@ describe("station splash", () => {
     vi.useFakeTimers();
     const cancel = vi.fn();
     const animate = vi.fn(() => ({ cancel }));
-    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+    Object.defineProperty(Element.prototype, "animate", { configurable: true, value: animate });
     const complete = vi.fn();
     const view = render(<BootSplash ready={false} onComplete={complete}/>);
     const emblem = screen.getByRole("img", { name: "VIHANGA" });
-    expect(emblem.getAttribute("src")).toBe("/vihanga-boot.svg");
+    expect(emblem.localName).toBe("svg");
     expect(screen.getByRole("main").childElementCount).toBe(1);
     expect(view.container.textContent).toBe("");
     expect(screen.queryByRole("button")).toBeNull();
@@ -59,7 +59,7 @@ describe("station splash", () => {
   it("stops active animations and hands off immediately when motion is reduced", () => {
     const cancel = vi.fn();
     const animate = vi.fn(() => ({ cancel }));
-    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+    Object.defineProperty(Element.prototype, "animate", { configurable: true, value: animate });
     let change: (() => void) | undefined;
     const preference = {
       matches: false,

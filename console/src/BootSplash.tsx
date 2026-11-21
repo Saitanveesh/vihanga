@@ -6,11 +6,11 @@ const displayDuration = 1150;
 const exitDuration = 240;
 
 function canAnimate(preference = window.matchMedia?.(reducedMotion)) {
-  return typeof HTMLElement.prototype.animate === "function" && !preference?.matches;
+  return typeof Element.prototype.animate === "function" && !preference?.matches;
 }
 
 export default function BootSplash({ ready, onComplete }: { ready: boolean; onComplete: () => void }) {
-  const logo = useRef<HTMLImageElement>(null);
+  const logo = useRef<SVGSVGElement>(null);
   const [motion, setMotion] = useState(() => canAnimate());
   const [revealed, setRevealed] = useState(false);
 
@@ -52,6 +52,21 @@ export default function BootSplash({ ready, onComplete }: { ready: boolean; onCo
   }, [motion, ready, revealed, onComplete]);
 
   return <main className="station-splash" aria-busy="true">
-    <img className="station-splash-logo" ref={logo} src="/vihanga-boot.svg" alt="VIHANGA" width="208" height="146"/>
+    <svg className="station-splash-logo" ref={logo} viewBox="8 23 80 56" width="208" height="146"
+      role="img" aria-label="VIHANGA">
+      <defs>
+        <linearGradient id="boot-wing" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#9ad9f3"/>
+          <stop offset="1" stopColor="#448ebc"/>
+        </linearGradient>
+      </defs>
+      <g fill="url(#boot-wing)">
+        <path d="M10 38 37 43 48 27 58 43 86 38 68 51 60 52 48 71 36 52 28 51Z"/>
+        <path d="m21 54 17 4 10 15 10-15 17-4-20 3-7 16-7-16Z" opacity=".57"/>
+      </g>
+      <path d="m39 45 9-13 9 13-9-3Z" fill="#d7eff9"/>
+      <path d="M48 54v16" fill="none" stroke="#09141f" strokeWidth="4" strokeLinecap="round"/>
+      <path d="M47 74h2" stroke="#8dcbe9" strokeWidth="3" strokeLinecap="round"/>
+    </svg>
   </main>;
 }
