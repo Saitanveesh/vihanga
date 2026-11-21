@@ -6,6 +6,40 @@ def client(tmp_path):
     return TestClient(create_app(tmp_path / "test.sqlite3"))
 
 
+def test_serial_scan_reports_only_actual_host_ports(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    from vihanga import app as api
+    monkeypatch.setattr(api.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        "serial.tools.list_ports.comports",
+        lambda: [Mock(device="COM6"), Mock(device="COM4"), Mock(device="invalid-path")])
+    reply = client(tmp_path).get("/api/v1/serial/ports")
+    assert reply.status_code == 200
+    assert reply.json() == {
+        "host_platform": "WINDOWS", "ports": ["COM4", "COM6"],
+        "scope": "API_HOST_ONLY"
+    }
+
+
+def test_oracle_does_not_claim_windows_usb_and_returns_specific_error(tmp_path, monkeypatch):
+    from vihanga import app as api
+    monkeypatch.setattr(api.platform, "system", lambda: "Linux")
+    c = client(tmp_path)
+    assert c.post("/api/v1/vehicles", json={
+        "vehicle_id": "AH-HW-001", "label": "Bench Pixhawk",
+        "autopilot": "ARDUPILOT", "interface": "UART"}).status_code == 201
+    attempt = c.post("/api/v1/links/serial", json={
+        "vehicle_id": "AH-HW-001", "port": "COM6", "baud": 57600,
+        "fc_system_id": 1})
+    assert attempt.status_code == 409
+    assert "cannot open" in attempt.json()["detail"]
+    backup = c.post("/api/v1/links/backup/serial", json={
+        "vehicle_id": "AH-HW-001", "port": "COM6", "baud": 57600,
+        "fc_system_id": 1})
+    assert backup.status_code == 409
+    assert "COM6" in backup.json()["detail"]
+
+
 def test_no_physical_commands_are_exposed(tmp_path):
     c = client(tmp_path)
     assert c.get("/api/v1/health").json()["physical_flight_control"] is False

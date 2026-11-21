@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Telemetry } from "./api";
+import { getHostSerialPorts, type Telemetry } from "./api";
 import UiIcon from "./UiIcon";
 
 export type ConnectionMethod = "SERIAL" | "UDP" | "TCP" | "LAN" | "BROKER" | "CLOUD";
@@ -109,7 +109,12 @@ export default function ConnectionSettings({
   const [username, setUsername] = useState(knownCloudUser);
   const [password, setPassword] = useState("");
   const [viewerToken, setViewerToken] = useState("");
-  const [serialPort, setSerialPort] = useState("COM3");
+  const [serialPort, setSerialPort] = useState("");
+  const [hostSerialPorts, setHostSerialPorts] = useState<string[]>([]);
+  const [hostPlatform, setHostPlatform] = useState<string | null>(null);
+  const [serialScanError, setSerialScanError] = useState("");
+  const [serialScanBusy, setSerialScanBusy] = useState(false);
+  const [serialScanRevision, setSerialScanRevision] = useState(0);
   const [baud, setBaud] = useState(57600);
   const [port, setPort] = useState(14550);
   const [systemId, setSystemId] = useState(1);
@@ -124,6 +129,27 @@ export default function ConnectionSettings({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [busy, onClose]);
+
+  useEffect(() => {
+    if (method !== "SERIAL") return;
+    let cancelled = false;
+    setSerialScanBusy(true);
+    setSerialScanError("");
+    getHostSerialPorts().then(result => {
+      if (cancelled) return;
+      setHostPlatform(result.host_platform);
+      setHostSerialPorts(result.ports);
+      setSerialPort(previous => result.ports.includes(previous)
+        ? previous : result.ports.length === 1 ? result.ports[0] : "");
+    }).catch(() => {
+      if (cancelled) return;
+      setHostSerialPorts([]);
+      setHostPlatform(null);
+      setSerialPort("");
+      setSerialScanError("Unable to query the GCS backend for serial ports.");
+    }).finally(() => { if (!cancelled) setSerialScanBusy(false); });
+    return () => { cancelled = true; };
+  }, [method, serialScanRevision]);
 
   function chooseMethod(next: ConnectionMethod) {
     setMethod(next);
@@ -144,6 +170,10 @@ export default function ConnectionSettings({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!aircraftId || busy || alreadyConfigured || cannotAddBackup) return;
+    if (method === "SERIAL" && (!hostSerialPorts.includes(serialPort) || serialScanBusy)) {
+      setLocalError("Choose an available serial port attached to the GCS backend host.");
+      return;
+    }
     const request: ConnectionRequest = {
       role, method, origin: origin.trim(), username: username.trim(),
       password, viewerToken, serialPort: serialPort.trim(), baud, port, systemId
@@ -225,16 +255,38 @@ export default function ConnectionSettings({
           className="connection-settings-form">
           <div className="connection-settings-section">
             <span className="connection-settings-label">CONNECTION DETAILS</span>
-            {method === "SERIAL" && <div className="connection-settings-field-grid">
-              <label>Serial port<input required value={serialPort}
-                placeholder="COM3" autoComplete="off"
-                onChange={event => setSerialPort(event.target.value)}/></label>
-              <label>Baud rate<select value={baud}
-                onChange={event => setBaud(Number(event.target.value))}>
-                {[9600,19200,38400,57600,115200,230400,460800,921600].map(value =>
-                  <option value={value} key={value}>{value}</option>)}
-              </select></label>
-            </div>}
+            {method === "SERIAL" && <>
+              <div className="connection-settings-field-grid">
+                <label>Detected API-host serial port
+                  <select required aria-label="Detected serial port" value={serialPort}
+                    disabled={serialScanBusy || hostSerialPorts.length === 0}
+                    onChange={event => setSerialPort(event.target.value)}>
+                    <option value="">{serialScanBusy ? "Scanning..." : "Choose detected port"}</option>
+                    {hostSerialPorts.map(value =>
+                      <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label>Baud rate<select value={baud}
+                  onChange={event => setBaud(Number(event.target.value))}>
+                  {[9600,19200,38400,57600,115200,230400,460800,921600].map(value =>
+                    <option value={value} key={value}>{value}</option>)}
+                </select></label>
+              </div>
+              <button className="connection-scan-button" type="button"
+                disabled={serialScanBusy} onClick={() => setSerialScanRevision(x => x + 1)}>
+                {serialScanBusy ? "Scanning" : "Rescan serial ports"}
+              </button>
+              {serialScanError && <p role="status" className="connection-settings-info">{serialScanError}</p>}
+              <p className="connection-settings-info">
+                {hostPlatform === "LINUX"
+                  ? "This GCS API runs on Linux. It cannot discover your Windows COM6. Connect locally to a Windows GCS API or use an authenticated Pi LAN backup."
+                  : hostPlatform === "WINDOWS"
+                  ? hostSerialPorts.length
+                    ? "Ports physically attached to this Windows GCS backend are shown. Check the telemetry baud rate and FC system ID."
+                    : "No serial ports are currently visible on this Windows GCS backend. Plug in the radio or release its port from other software."
+                  : "Serial discovery queries the API host, not your browser computer."}
+              </p>
+            </>}
             {(method === "UDP" || method === "TCP") && <div className="connection-settings-field-grid">
               <label>IP address<input readOnly value="127.0.0.1"
                 title="Local-only receiver; non-loopback addresses are not accepted"/></label>
@@ -315,7 +367,8 @@ export default function ConnectionSettings({
             disabled={busy} onClick={onClose}>Cancel</button>
           <button type="submit" form="connection-settings-form"
             className="connection-primary" disabled={busy || !aircraftId ||
-              alreadyConfigured || cannotAddBackup}>
+              alreadyConfigured || cannotAddBackup ||
+               (method === "SERIAL" && (!hostSerialPorts.includes(serialPort) || serialScanBusy))}>
             {busy ? "Connecting…" : role === "PRIMARY" ? "Connect primary" : "Connect backup"}
           </button>
         </div>

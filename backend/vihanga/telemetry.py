@@ -243,6 +243,18 @@ class MAVLinkProjector:
                 alt = msg.relative_alt / 1000
                 if -10000 <= alt <= 100000:
                     self._set("relative_alt_m", round(alt, 2), now)
+            elif typ == "STATUSTEXT":
+                # ArduPilot reports RC loss/restoration as FC-origin events.
+                # Do not treat regular RC_CHANNELS updates as RF link proof:
+                # a flight controller may keep reporting receiver-failsafe PWM.
+                value = msg.text
+                text = (value.decode("utf-8", "replace") if isinstance(value, bytes)
+                        else str(value)).strip().lower().rstrip("\\x00")
+                if "radio failsafe" in text or "rc failsafe" in text:
+                    if any(term in text for term in ("cleared", "recovered", "ended", "off")):
+                        self._set("rc_failsafe_event", False, now)
+                    elif not any(term in text for term in ("disabled", "not enabled")):
+                        self._set("rc_failsafe_event", True, now)
             elif typ in ("RC_CHANNELS", "RC_CHANNELS_RAW"):
                 # Pixhawk's RC receiver (FlySky/IBUS/PPM/SBUS) is not a
                 # MAVLink RADIO_STATUS telemetry modem. FC channel samples
@@ -358,7 +370,9 @@ class MAVLinkProjector:
         rc_sensor = sensors.get("rc_receiver") if sensors else None
         # Only reported FC flags or fresh RC channel samples may inform state.
         # Channel updates alone are not proof that the receiver is failsafe-free.
+        rc_failsafe = self.fields.get("rc_failsafe_event", (None, 0))[0]
         rc_state = (
+            "FAILSAFE" if rc_failsafe is True else
             "FC_FAULT" if rc_sensor == "FAULT" else
             "FC_DISABLED" if rc_sensor == "DISABLED" else
             "FC_ABSENT" if rc_sensor == "ABSENT" else
@@ -390,6 +404,7 @@ class MAVLinkProjector:
             "radio_txbuf_raw": fresh("radio_txbuf_raw", 5),
             "sensor_health": sensors,
             "rc_input_status": rc_state,
+            "rc_failsafe_reported": rc_failsafe,
             "rc_channels_fresh": rc_count is not None,
             "rc_channel_count": rc_count,
             "rc_rssi_raw": fresh("rc_rssi_raw", 5),
