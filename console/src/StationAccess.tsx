@@ -1,3 +1,4 @@
+import StationMark from "./StationMark";
 import { useEffect, useState, type FormEvent } from "react";
 import App from "./App";
 
@@ -86,8 +87,7 @@ export default function StationAccess() {
   }
   return <main className="station-boot">
     <section className="station-boot-inner">
-      <div className="boot-identity"><img src="/vihanga-mark.svg" width="44" height="44" alt=""/>
-        <div><strong>VIHANGA</strong><span>GROUND STATION</span></div></div>
+      <StationMark phase={error ? "attention" : !session || busy ? "checking" : "idle"}/>
       <h1>{session?.required ? "Station sign-in" : "Checking station access"}</h1>
       {error && <p role="alert">{error}</p>}
       {session?.required ? <form className="form-stack" onSubmit={signIn}>

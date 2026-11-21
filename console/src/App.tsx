@@ -109,6 +109,7 @@ export default function App({ account }: {
   const [polygon, setPolygon] = useState<MapPoint[]>([]);
   const [manual, setManual] = useState<Waypoint[]>([]);
   const [survey, setSurvey] = useState<SurveyPreview | null>(null);
+  const previewRevision = useRef(0);
   const [pattern, setPattern] = useState<"PARALLEL" | "CIRCULAR">("PARALLEL");
   const [speed, setSpeed] = useState(5);
   const [editedRoute, setEditedRoute] = useState<Waypoint[] | null>(null);
@@ -366,7 +367,14 @@ export default function App({ account }: {
     setNotice("");
     setAlert(error instanceof Error ? error.message : String(error));
   }
+  function clearPreview() {
+    previewRevision.current += 1;
+    setSurvey(null);
+    setEditedRoute(null);
+    setSelectedWaypoint(null);
+  }
   function navigate(page: Section) {
+    previewRevision.current += 1;
     setSelectedWaypoint(null);
     setPanelOpen(page !== "FLIGHT");
     setSection(page);
@@ -374,12 +382,10 @@ export default function App({ account }: {
     setAlert(""); setNotice("");
   }
   function clicked(point: MapPoint) {
-    if (section !== "PLAN") return;
+    if (section !== "PLAN" || drawMode === "NONE") return;
     setOpenedMission(null);
-    setSurvey(null);
-    setEditedRoute(null);
+    clearPreview();
     if (drawMode === "POLYGON") {
-      setSelectedWaypoint(null);
       setPolygon(old => [...old, point]);
     }
     if (drawMode === "WAYPOINT") {
@@ -394,18 +400,14 @@ export default function App({ account }: {
     // on-screen draft and its visible map geometry, not saved mission records.
     setOpenedMission(null);
     setManual([]);
-    setSurvey(null);
-    setEditedRoute(null);
-    setSelectedWaypoint(null);
+    clearPreview();
     notify("Waypoint layer cleared.");
   }
 
   function clearBoundary() {
     setPolygon([]);
-    if (survey) {
-      setSurvey(null);
-      setEditedRoute(null);
-    }
+    if (survey) clearPreview();
+    else previewRevision.current += 1;
     setSelectedWaypoint(null);
     notify("Survey boundary cleared.");
   }
@@ -413,10 +415,8 @@ export default function App({ account }: {
   function resetPlanner() {
     setPolygon([]);
     setManual([]);
-    setSurvey(null);
-    setEditedRoute(null);
+    clearPreview();
     setOpenedMission(null);
-    setSelectedWaypoint(null);
     setDrawMode("NONE");
     setPattern("PARALLEL");
     setSpacing(20);
@@ -431,9 +431,10 @@ export default function App({ account }: {
     if (openedMission) return;
     if (drawMode === "POLYGON") {
       setPolygon(previous => previous.slice(0, -1));
-      setSurvey(null);
-      setEditedRoute(null);
+      clearPreview();
     } else {
+      if (survey?.pattern === "CIRCULAR") return;
+      previewRevision.current += 1;
       const previous = editedRoute ?? survey?.waypoints ?? manual;
       if (survey || editedRoute) setEditedRoute(previous.slice(0, -1));
       else setManual(points => points.slice(0, -1));
@@ -442,12 +443,13 @@ export default function App({ account }: {
   }
 
   function reviseWaypoint(index: number, field: "latitude" | "longitude" | "altitude_m", raw: string) {
-    if (openedMission) return; // saved mission revisions are immutable
+    if (openedMission || (survey?.pattern === "CIRCULAR" && field !== "altitude_m")) return;
     const n = Number(raw);
     if (raw.trim() === "" || !Number.isFinite(n)) return;
     if ((field === "latitude" && Math.abs(n) > 90) ||
         (field === "longitude" && Math.abs(n) > 180) ||
         (field === "altitude_m" && (n < 0 || n > 120))) return;
+    previewRevision.current += 1;
     setEditedRoute(previous => (previous ?? (survey?.waypoints ?? manual)).map((p,i) =>
       i === index ? { ...p, [field]: n } : p
     ));
@@ -478,10 +480,9 @@ export default function App({ account }: {
   }
 
   function moveVertex(index: number, point: MapPoint) {
-    if (section !== "PLAN" || openedMission) return;
+    if (section !== "PLAN" || drawMode !== "POLYGON" || openedMission) return;
     setPolygon(p => p.map((v,i) => i === index ? point : v));
-    setSurvey(null);
-    setEditedRoute(null);
+    clearPreview();
   }
 
   async function addAircraft(event: FormEvent) {
@@ -498,6 +499,7 @@ export default function App({ account }: {
     } catch (e) { fail(e); } finally { setBusy(false); }
   }
   async function preview() {
+    const revision = ++previewRevision.current;
     setBusy(true);
     try {
       const result = pattern === "PARALLEL"
@@ -505,6 +507,7 @@ export default function App({ account }: {
             altitude_m: altitude, speed_mps: speed})
         : await previewCircularSurvey({polygon, spacing_m: spacing,
             altitude_m: altitude, speed_mps: speed});
+      if (revision !== previewRevision.current) return;
       setSurvey(result);
       setSelectedWaypoint(null);
       setEditedRoute(null);
@@ -513,7 +516,11 @@ export default function App({ account }: {
       setDrawMode("NONE");
       notify("Generated " + result.lane_count + (pattern === "PARALLEL" ? " survey lanes." : " concentric loops.") + " Review route transitions before saving.");
       setFitSignal(x => x + 1);
-    } catch (e) { fail(e); } finally { setBusy(false); }
+    } catch (error) {
+      if (revision === previewRevision.current) fail(error);
+    } finally {
+      setBusy(false);
+    }
   }
   async function saveDraft(event: FormEvent) {
     event.preventDefault();
@@ -784,6 +791,7 @@ export default function App({ account }: {
           <Suspense fallback={<div className="station-map-error" role="status">Loading map</div>}>
             <GeoMap polygon={section === "PLAN" ? polygon : EMPTY_POLYGON} route={section === "PLAN" || section === "HISTORY" || section === "FLIGHT" ? waypoints : EMPTY_ROUTE}
               track={observedTrack} position={location} drawing={section === "PLAN" && drawMode !== "NONE"}
+              editingBoundary={section === "PLAN" && drawMode === "POLYGON"}
               basemap={basemap} centerSignal={centerSignal} fitSignal={fitSignal}
               selectedWaypoint={selectedWaypoint} onWaypointSelect={setSelectedWaypoint}
               fitLeftPadding={panelOpen && (section === "PLAN" || section === "HISTORY") ? 414 : 76}
@@ -836,14 +844,15 @@ export default function App({ account }: {
             </div>
             <div className="plan-tabs" aria-label="Coverage pattern">
               <button type="button" className={pattern === "PARALLEL" ? "active" : ""}
-                onClick={() => { setPattern("PARALLEL"); setSurvey(null); setSelectedWaypoint(null); setEditedRoute(null); }}>Parallel</button>
+                onClick={() => { setPattern("PARALLEL"); clearPreview(); }}>Parallel</button>
               <button type="button" className={pattern === "CIRCULAR" ? "active" : ""}
-                onClick={() => { setPattern("CIRCULAR"); setSurvey(null); setSelectedWaypoint(null); setEditedRoute(null); }}>Circular</button>
+                onClick={() => { setPattern("CIRCULAR"); clearPreview(); }}>Circular</button>
             </div>
             <div className="panel-section-label">AREA & WAYPOINTS</div>
             <div className="planner-quick-actions" role="group" aria-label="Planner editing tools">
               <button type="button" onClick={undoPlannerPoint}
-                disabled={!!openedMission || !(drawMode === "POLYGON" ? polygon.length : waypoints.length)}
+                disabled={!!openedMission || !(drawMode === "POLYGON" ? polygon.length :
+                  survey?.pattern !== "CIRCULAR" && waypoints.length)}
                 title="Remove the last route waypoint or polygon vertex">Undo last</button>
               <button type="button" onClick={clearWaypoints} disabled={!waypoints.length}
                 title="Clear displayed waypoints without deleting saved missions">Clear waypoints</button>
@@ -855,10 +864,10 @@ export default function App({ account }: {
             </div>
             <div className="toggle-row compact-row">
               <button type="button" className={drawMode === "POLYGON" ? "active" : ""}
-                onClick={() => { setDrawMode(drawMode === "POLYGON" ? "NONE" : "POLYGON"); setOpenedMission(null); }}>
+                onClick={() => { previewRevision.current += 1; setDrawMode(drawMode === "POLYGON" ? "NONE" : "POLYGON"); setOpenedMission(null); }}>
                 Draw boundary</button>
               <button type="button" className={drawMode === "WAYPOINT" ? "active" : ""}
-                onClick={() => { setDrawMode(drawMode === "WAYPOINT" ? "NONE" : "WAYPOINT"); setOpenedMission(null); }}>
+                onClick={() => { previewRevision.current += 1; setDrawMode(drawMode === "WAYPOINT" ? "NONE" : "WAYPOINT"); setOpenedMission(null); }}>
                 Add waypoint</button>
             </div>
             {drawMode !== "NONE" && <div className="drawing-note">
@@ -868,27 +877,27 @@ export default function App({ account }: {
             <div className="survey-controls">
               <label>Line / ring spacing
                 <div className="value-row"><input type="range" min="5" max="100" step="1" value={spacing}
-                  onChange={e => {setSpacing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  onChange={e => {setSpacing(Number(e.target.value)); clearPreview();}}/>
                   <input className="value-box" type="number" min="5" max="200" value={spacing}
-                    onChange={e => {setSpacing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>m</span></div>
+                    onChange={e => {setSpacing(Number(e.target.value)); clearPreview();}}/><span>m</span></div>
               </label>
               {pattern === "PARALLEL" && <label>Grid angle
                 <div className="value-row"><input type="range" min="0" max="179" value={bearing}
-                  onChange={e => {setBearing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  onChange={e => {setBearing(Number(e.target.value)); clearPreview();}}/>
                   <input className="value-box" type="number" min="0" max="179" value={bearing}
-                    onChange={e => {setBearing(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>°</span></div>
+                    onChange={e => {setBearing(Number(e.target.value)); clearPreview();}}/><span>°</span></div>
               </label>}
               <label>Flight altitude
                 <div className="value-row"><input type="range" min="10" max="120" value={altitude}
-                  onChange={e => {setAltitude(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  onChange={e => {setAltitude(Number(e.target.value)); clearPreview();}}/>
                   <input className="value-box" type="number" min="10" max="120" value={altitude}
-                    onChange={e => {setAltitude(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>m</span></div>
+                    onChange={e => {setAltitude(Number(e.target.value)); clearPreview();}}/><span>m</span></div>
               </label>
               <label>Planned groundspeed
                 <div className="value-row"><input type="range" min="0.5" max="20" step="0.5" value={speed}
-                  onChange={e => {setSpeed(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/>
+                  onChange={e => {setSpeed(Number(e.target.value)); clearPreview();}}/>
                   <input className="value-box" type="number" min="0.5" max="25" step="0.5" value={speed}
-                    onChange={e => {setSpeed(Number(e.target.value));setSurvey(null);setEditedRoute(null);}}/><span>m/s</span></div>
+                    onChange={e => {setSpeed(Number(e.target.value)); clearPreview();}}/><span>m/s</span></div>
               </label>
             </div>
             <div className="plan-buttons">
@@ -897,31 +906,32 @@ export default function App({ account }: {
             </div>
             <button type="button" className="major" disabled={busy || polygon.length < 3}
               onClick={() => void preview()}>{busy ? "Working…" : "Generate coverage route"}</button>
-            {survey?.coverage_note && <div className="drawing-note">{survey.coverage_note}</div>}
+            {survey?.coverage_note && <div className="drawing-note">{survey.coverage_note}
+              {survey.pattern === "CIRCULAR" && " Edit the boundary or spacing to reposition the loops."}
+            </div>}
             {waypoints.length > 0 && <div className="route-editor">
               <div className="route-editor-head">
                 <strong>Waypoints <span className="route-total">{waypoints.length}</span></strong>
                 <span>{openedMission ? "SAVED ROUTE" : "DRAFT ROUTE"}</span>
               </div>
               <div className="route-scroll" aria-label="Mission waypoint list">
-                {waypoints.slice(0,100).map((p,i) => <div
+                {waypoints.map((p,i) => <div
                   className={"route-row" + (selectedWaypoint === i ? " picked" : "")} key={i}>
                   <button type="button" className="waypoint-index"
                     title={"Highlight waypoint " + (i + 1) + " on the map"}
                     aria-label={"Select waypoint " + (i + 1)}
                     aria-pressed={selectedWaypoint === i}
                     onClick={() => setSelectedWaypoint(i)}>{i + 1}</button>
-                  <label>LAT<input disabled={!!openedMission} type="number" step="any"
+                  <label>LAT<input key={p.latitude} disabled={!!openedMission || survey?.pattern === "CIRCULAR"} type="number" step="any"
                     defaultValue={p.latitude} onFocus={() => setSelectedWaypoint(i)}
                     onBlur={e => reviseWaypoint(i,"latitude",e.target.value)}/></label>
-                  <label>LON<input disabled={!!openedMission} type="number" step="any"
+                  <label>LON<input key={p.longitude} disabled={!!openedMission || survey?.pattern === "CIRCULAR"} type="number" step="any"
                     defaultValue={p.longitude} onFocus={() => setSelectedWaypoint(i)}
                     onBlur={e => reviseWaypoint(i,"longitude",e.target.value)}/></label>
-                  <label>ALT<input disabled={!!openedMission} type="number" min="0" max="120"
+                  <label>ALT<input key={p.altitude_m} disabled={!!openedMission} type="number" min="0" max="120"
                     defaultValue={p.altitude_m} onFocus={() => setSelectedWaypoint(i)}
                     onBlur={e => reviseWaypoint(i,"altitude_m",e.target.value)}/></label>
                 </div>)}
-                {waypoints.length > 100 && <p className="panel-footnote">Showing first 100 of {waypoints.length} route points</p>}
               </div>
             </div>}
             <div className="plan-stats">
@@ -996,8 +1006,8 @@ export default function App({ account }: {
             <div className="history-list">
               {displayedMissionList.length === 0 && <p className="panel-footnote">No saved drafts for this aircraft.</p>}
               {displayedMissionList.map(m => <button key={m.mission_id} onClick={() => {
-                setOpenedMission(m); setSelectedWaypoint(null);
-                setSurvey(null); setManual([]); setPolygon([]);
+                setOpenedMission(m);
+                clearPreview(); setManual([]); setPolygon([]);
               }} className={openedMission?.mission_id === m.mission_id ? "picked" : ""}>
                 <strong>{m.title}</strong>
                 <span>{m.waypoints.length} points · {(m.distance_m / 1000).toFixed(2)} km</span>

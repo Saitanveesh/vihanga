@@ -1,3 +1,4 @@
+import StationMark from "./StationMark";
 import { useEffect, useState } from "react";
 import { getHealth, getMissions, getVehicles, type Health, type Mission, type Vehicle } from "./api";
 
@@ -83,13 +84,15 @@ export function useStationBoot(onResult: (data: BootData) => void) {
 }
 
 export default function StationBoot({ checks, finished, ready, dismiss, retry }: ReturnType<typeof useStationBoot>) {
+  const checked = Object.values(checks).filter(check => check.state !== "pending").length;
   return <main className="station-boot">
     <section className="station-boot-inner" aria-labelledby="station-boot-title">
-      <div className="boot-identity">
-        <img src="/vihanga-mark.svg" width="44" height="44" alt=""/>
-        <div><strong>VIHANGA</strong><span>GROUND STATION</span></div>
-      </div>
+      <StationMark phase={!finished ? "checking" : ready ? "ready" : "attention"}/>
       <h1 id="station-boot-title">Station startup</h1>
+      <div className="station-start-progress">
+        <progress aria-label="Startup checks completed" max={3} value={checked}/>
+        <span>{checked} / 3 checked</span>
+      </div>
       <ol aria-live="polite" className="boot-checks">
         {([["api", "Operations API"], ["fleet", "Aircraft directory"], ["drafts", "Mission storage"]] as const)
           .map(([key, label]) => <li key={key} data-state={checks[key].state}>

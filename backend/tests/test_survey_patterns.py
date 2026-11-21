@@ -1,3 +1,5 @@
+from math import cos, pi, sin
+
 from fastapi.testclient import TestClient
 from vihanga.app import create_app
 
@@ -74,3 +76,29 @@ def test_persistence_only_draft_no_upload(tmp_path):
     assert r.status_code == 201, r.text
     assert r.json()["status"] == "DRAFT_ONLY"
     assert c.post("/api/v1/missions/" + r.json()["mission_id"] + "/upload").status_code == 404
+
+
+def test_circular_rejects_crossed_vertex_order_and_contains_rotated_loops(tmp_path):
+    client = TestClient(create_app(tmp_path / "circle.sqlite3"))
+    shape = [
+        {"latitude": 12.97 + .001 * sin(2 * pi * i / 5),
+         "longitude": 77.59 + .001 * cos(2 * pi * i / 5)}
+        for i in range(5)
+    ]
+    endpoint = "/api/v1/surveys/circular/preview"
+    settings = {"spacing_m": 20, "altitude_m": 40}
+    star = [shape[i] for i in (0, 2, 4, 1, 3)]
+    assert client.post(endpoint, json={"polygon": star, **settings}).status_code == 422
+
+    boundary = list(reversed(shape))
+    response = client.post(endpoint, json={"polygon": [*boundary, boundary[0]], **settings})
+    assert response.status_code == 200, response.text
+    points = response.json()["waypoints"]
+    # Check the rendered points and each straight segment midpoint, including ring transfers.
+    midpoints = [{key: (a[key] + b[key]) / 2 for key in ("latitude", "longitude")}
+                 for a, b in zip(points, points[1:])]
+    for a, b in zip(boundary, boundary[1:] + boundary[:1]):
+        for p in points + midpoints:
+            cross = ((b["longitude"] - a["longitude"]) * (p["latitude"] - a["latitude"])
+                     - (b["latitude"] - a["latitude"]) * (p["longitude"] - a["longitude"]))
+            assert cross < 0

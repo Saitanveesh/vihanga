@@ -29,9 +29,41 @@ describe("station startup", () => {
     vi.mocked(getVehicles).mockResolvedValue([]);
     vi.mocked(getMissions).mockResolvedValue([]);
     render(<Harness result={result}/>);
-    fireEvent.click(await screen.findByRole("button", { name: "Open ground station" }));
+    const open = await screen.findByRole("button", { name: "Open ground station" });
+    expect(screen.getByRole("progressbar", { name: "Startup checks completed" }).getAttribute("value")).toBe("3");
+    expect(open.closest("section")?.querySelector(".station-mark")?.getAttribute("data-phase")).toBe("ready");
+    fireEvent.click(open);
     expect(screen.getByRole("heading", { name: "Flight monitoring" })).toBeTruthy();
     expect(result).toHaveBeenCalledWith({ health, vehicles: [], missions: [] });
+  });
+
+  it("starts the logo motion during checks, then cleans it up if reduced motion is enabled", async () => {
+    const cancel = vi.fn();
+    const animate = vi.fn(() => ({ cancel }));
+    const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
+    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+    let change: (() => void) | undefined;
+    const preference = {
+      matches: false,
+      addEventListener: vi.fn((_event, callback: () => void) => { change = callback; }),
+      removeEventListener: vi.fn()
+    };
+    vi.stubGlobal("matchMedia", () => preference);
+    try {
+      vi.mocked(getHealth).mockImplementation(() => new Promise(() => {}));
+      const view = render(<Harness result={vi.fn()}/>);
+      expect(animate).toHaveBeenCalledTimes(2);
+      preference.matches = true;
+      change?.();
+      expect(cancel).toHaveBeenCalledTimes(2);
+      expect(animate).toHaveBeenCalledTimes(2);
+      view.unmount();
+      expect(preference.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
+    } finally {
+      if (originalAnimate) Object.defineProperty(HTMLElement.prototype, "animate", originalAnimate);
+      else Reflect.deleteProperty(HTMLElement.prototype, "animate");
+      vi.unstubAllGlobals();
+    }
   });
 
   it("can retry a recovered API without refreshing the page", async () => {
@@ -41,6 +73,7 @@ describe("station startup", () => {
     render(<Harness result={vi.fn()}/>);
     const retry = await screen.findByRole("button", { name: "Retry checks" });
     expect(screen.getAllByText("UNAVAILABLE")).toHaveLength(3);
+    expect(retry.closest("section")?.querySelector(".station-mark")?.getAttribute("data-phase")).toBe("attention");
     expect(getVehicles).not.toHaveBeenCalled();
     fireEvent.click(retry);
     expect(await screen.findByRole("button", { name: "Open ground station" })).toBeTruthy();
