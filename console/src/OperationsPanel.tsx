@@ -96,7 +96,8 @@ export default function OperationsPanel({
       <div className="ops-drawer-heading"><UiIcon name="radio" size={17}/>
         <h3>RC pilot receiver (Pixhawk)</h3></div>
       <div className="ops-metric-row"><span>RC input</span>
-        <strong>{telemetry?.rc_input_status === "CHANNELS_REPORTED" ? "FC CHANNELS RECEIVED" :
+        <strong>{telemetry?.rc_input_status === "FAILSAFE" ? "RC FAILSAFE REPORTED" :
+          telemetry?.rc_input_status === "CHANNELS_REPORTED" ? "FC CHANNELS RECEIVED · RF UNVERIFIED" :
           telemetry?.rc_input_status === "FC_HEALTHY" ? "FC REPORTS HEALTHY" :
           telemetry?.rc_input_status === "FC_FAULT" ? "FC REPORTS FAULT" :
           telemetry?.rc_input_status === "FC_DISABLED" ? "DISABLED" :
@@ -105,9 +106,9 @@ export default function OperationsPanel({
         <strong>{telemetry?.rc_channels_fresh ? measurement(telemetry.rc_channel_count) : "—"}</strong></div>
       <div className="ops-metric-row"><span>RC signal</span>
         <strong>{telemetry?.rc_rssi_raw == null ? "Not reported" : telemetry.rc_rssi_raw + " raw"}</strong></div>
-      <p className="ops-note">RC_CHANNELS from the flight controller, if forwarded through MAVLink.
-        An active handheld transmitter does not automatically create a GCS backup telemetry receiver.
-        Missing RC data can mean that the FC is not streaming RC_CHANNELS.</p>
+      <p className="ops-note">RC_CHANNELS may keep reporting failsafe PWM after the transmitter is powered off.
+        Live RC channel packets are not proof of active RF. This panel highlights a verified FC
+        Radio Failsafe event when one is forwarded. Check RC failsafe locally on Pixhawk.</p>
     </section>
     <section className="ops-drawer-section">
       <div className="ops-drawer-heading"><UiIcon name="activity" size={17}/>
