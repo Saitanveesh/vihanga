@@ -839,9 +839,14 @@ export default function App() {
               <UiIcon name="map" size={15}/>
               <span>GPS</span><strong>{sample?.gps_fix_type == null ? "—" : "FIX " + sample.gps_fix_type}</strong>
             </div>
-            <div className="ops-signal-item">
-              <UiIcon name="activity" size={15}/>
-              <span>RF</span><strong>{sample?.radio_rssi_raw ?? "—"}</strong>
+            <div className={"ops-signal-item " +
+              (sample?.rc_input_status === "CHANNELS_REPORTED" || sample?.rc_input_status === "FC_HEALTHY"
+                ? "healthy" : sample?.rc_input_status === "FC_FAULT" ? "fault" : "")}
+              title="RC receiver report from Pixhawk; independent of the GCS telemetry backup">
+              <UiIcon name="radio" size={15}/>
+              <span>RC</span><strong>{sample?.rc_input_status === "CHANNELS_REPORTED" ? "INPUT" :
+                sample?.rc_input_status === "FC_HEALTHY" ? "FC OK" :
+                sample?.rc_input_status === "FC_FAULT" ? "FAULT" : "—"}</strong>
             </div>
             <button type="button" className="ops-summary-button"
               aria-label={diagnosticsOpen ? "Close link and sensors panel" : "Open link and sensors panel"}
