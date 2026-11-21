@@ -109,6 +109,50 @@ def test_radio_component_68_is_allowed_but_never_as_an_fc():
     assert projector.snapshot()["attitude_fresh"] is False
 
 
+def test_pixhawk_rc_channels_are_reported_separately_from_telemetry_radio():
+    projector = MAVLinkProjector(1)
+    sample = projector.snapshot()
+    assert sample["rc_input_status"] == "NOT_REPORTED"
+    assert sample["rc_channels_fresh"] is False
+    assert sample["rc_rssi_raw"] is None
+
+    channels = mavlink.MAVLink_rc_channels_message(
+        100, 6, *([1500, 1502, 1490, 1090, 1750, 1100] + [65535] * 12 + [201])
+    )
+    assert projector.push(frame(channels)) == 1
+    data = projector.snapshot()
+    assert data["rc_input_status"] == "CHANNELS_REPORTED"
+    assert data["rc_channels_fresh"] is True
+    assert data["rc_channel_count"] == 6
+    assert data["rc_rssi_raw"] == 201
+    assert data["radio_rssi_raw"] is None
+
+    # An RC_CHANNELS message sent by a different aircraft or component
+    # must not contaminate the selected aircraft's RC health.
+    rejected = MAVLinkProjector(1)
+    assert rejected.push(frame(channels, source_system=2)) == 0
+    assert rejected.push(frame(channels, source_component=68)) == 0
+    assert rejected.snapshot()["rc_input_status"] == "NOT_REPORTED"
+
+
+def test_rc_rssi_unknown_and_missing_pwm_do_not_fake_flysky_signal():
+    projector = MAVLinkProjector(1)
+    unknown = mavlink.MAVLink_rc_channels_message(
+        110, 6, *([1500] * 6 + [65535] * 12 + [255])
+    )
+    assert projector.push(frame(unknown)) == 1
+    assert projector.snapshot()["rc_channels_fresh"] is True
+    assert projector.snapshot()["rc_rssi_raw"] is None
+
+    missing = MAVLinkProjector(1)
+    no_channels = mavlink.MAVLink_rc_channels_message(
+        110, 6, *([65535] * 18 + [255])
+    )
+    assert missing.push(frame(no_channels)) == 1
+    assert missing.snapshot()["rc_channels_fresh"] is False
+    assert missing.snapshot()["rc_input_status"] == "NOT_REPORTED"
+
+
 def test_real_radio_and_sys_status_are_not_fabricated_when_missing():
     projector = MAVLinkProjector(1)
     before = projector.snapshot()
