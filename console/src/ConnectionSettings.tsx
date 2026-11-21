@@ -239,7 +239,7 @@ export default function ConnectionSettings({
       aria-describedby="connection-description">
       <header className="connection-settings-head">
         <div>
-          <span className="connection-kicker">VIHANGA / COMMUNICATIONS</span>
+          
           <h2 id="connect-title">Connection settings</h2>
           <p id="connection-description">{aircraftName || "Aircraft"} · {aircraftId || "No aircraft selected"}</p>
         </div>

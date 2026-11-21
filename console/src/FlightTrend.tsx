@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Telemetry } from "./api";
 import {
   downloadCsv, flightCsv, flightMetrics, recordFlightPoint, trendGeometry,
-  HISTORY_DURATION_MS, SAMPLE_INTERVAL_MS, TREND_HEIGHT, TREND_WIDTH, type FlightPoint
+  HISTORY_DURATION_MS, SAMPLE_INTERVAL_MS, TREND_HEIGHT, TREND_WIDTH, type FlightMetric, type FlightPoint
 } from "./flightHistory";
 
 export function useFlightTrend(telemetry?: Telemetry) {
@@ -30,8 +30,8 @@ export function useFlightTrend(telemetry?: Telemetry) {
   return trend;
 }
 
-export default function FlightTrend({ aircraftId, now: liveNow, points: livePoints }: {
-  aircraftId: string; now: number; points: FlightPoint[];
+export default function FlightTrend({ aircraftId, now: liveNow, points: livePoints, metricKey }: {
+  aircraftId: string; now: number; points: FlightPoint[]; metricKey?: FlightMetric;
 }) {
   const [duration, setDuration] = useState(HISTORY_DURATION_MS);
   const [frozen, setFrozen] = useState<{ now: number; points: FlightPoint[] } | null>(null);
@@ -39,7 +39,7 @@ export default function FlightTrend({ aircraftId, now: liveNow, points: livePoin
   const visible = points.filter(point => point.at >= now - duration && point.frames !== null);
   return <div className="station-trends">
     <div className="station-trend-grid">
-      {flightMetrics.map(metric => {
+      {flightMetrics.filter(metric => !metricKey || metric.key === metricKey).map(metric => {
         const { paths, min, max } = trendGeometry(points, metric.key, now, duration);
         return <section key={metric.key} className="station-trend-card" aria-label={metric.label + " trend"}>
           <div><strong>{metric.label}</strong><span>{min == null || max == null ? "—" :
