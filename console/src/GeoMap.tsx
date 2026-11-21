@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl, { type GeoJSONSource, type Map as MapLibreMap, type Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -11,7 +11,7 @@ type Props = {
   track: MapPoint[];
   position: MapPoint | null;
   drawing: boolean;
-  basemap: "satellite" | "streets";
+  basemap: "satellite" | "streets" | "grid";
   centerSignal: number;
   fitSignal: number;
   selectedWaypoint?: number | null;
@@ -42,6 +42,11 @@ const imagery = {
     }
   },
   layers: [{ id: "base", type: "raster", source: "tiles" }]
+};
+const basemaps = {
+  satellite: imagery,
+  streets: street,
+  grid: { version: 8, sources: {}, layers: [] }
 };
 
 export function buildGeometry(polygon: MapPoint[], route: RoutePoint[], position: MapPoint | null, track: MapPoint[]) {
@@ -114,6 +119,7 @@ export default function GeoMap({
   selectedWaypoint = null, onWaypointSelect, fitLeftPadding = 120,
   onMapClick, onVertexMove
 }: Props) {
+  const [mapUnavailable, setMapUnavailable] = useState(false);
   const mount = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const pointMarkers = useRef<MapLibreMarker[]>([]);
@@ -134,12 +140,18 @@ export default function GeoMap({
 
   useEffect(() => {
     if (!mount.current) return;
-    const map = new maplibregl.Map({
-      container: mount.current,
-      style: (basemap === "satellite" ? imagery : street) as any,
-      center: [77.5946, 12.9716], zoom: 12.4,
-      attributionControl: { compact: true }
-    });
+    let map: MapLibreMap;
+    try {
+      map = new maplibregl.Map({
+        container: mount.current,
+        style: basemaps[basemap] as any,
+        center: [77.5946, 12.9716], zoom: 12.4,
+        attributionControl: { compact: true }
+      });
+    } catch {
+      setMapUnavailable(true);
+      return;
+    }
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
     const install = () => {
@@ -231,7 +243,7 @@ export default function GeoMap({
     const map = mapRef.current;
     if (map && currentBasemap.current !== basemap) {
       currentBasemap.current = basemap;
-      map.setStyle((basemap === "satellite" ? imagery : street) as any);
+      map.setStyle(basemaps[basemap] as any);
     }
   }, [basemap]);
 
@@ -311,6 +323,11 @@ export default function GeoMap({
     }
   }, [fitSignal, fitLeftPadding]);
 
-  return <div ref={mount} className={drawing ? "map-canvas drawing" : "map-canvas"}
-    role="application" aria-label="Geographic map: select draw mode and click to add polygon vertices or waypoints"/>;
+  return <>
+    <div ref={mount} className={drawing ? "map-canvas drawing" : "map-canvas"}
+      role="application" aria-label="Geographic map: select draw mode and click to add polygon vertices or waypoints"/>
+    {mapUnavailable && <div className="station-map-error" role="status">
+      Map unavailable. Enable WebGL and reload to use the map.
+    </div>}
+  </>;
 }

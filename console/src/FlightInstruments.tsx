@@ -1,60 +1,118 @@
+import { useState } from "react";
 import type { Telemetry } from "./api";
+import FlightTrend, { useFlightTrend } from "./FlightTrend";
+import { currentTelemetry, finite } from "./flightHistory";
 
-type Props = { telemetry?: Telemetry };
+const ticks = [0, .125, .25, .375, .5, .625, .75, .875, 1];
+const compassTicks = [-60, -45, -30, -15, 0, 15, 30, 45, 60];
+const cardinal: Record<number, string> = { 0: "N", 90: "E", 180: "S", 270: "W" };
+const bearing = (degrees: number) => (degrees % 360 + 360) % 360;
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+const text = (n: number | null, digits = 1) => n == null ? "—" : n.toFixed(digits);
 
-const fixed = (n: number | null | undefined, digits=1) => n == null ? "—" : n.toFixed(digits);
+function Gauge({ label, value, unit, min, max, detail }: {
+  label: string; value: number | null; unit: string; min: number; max: number; detail?: string;
+}) {
+  const fraction = value == null ? null : clamp((value - min) / (max - min), 0, 1);
+  const zero = min < 0 ? -min / (max - min) : 0;
+  return <section className="station-gauge" aria-label={label}>
+    <h3>{label}</h3>
+    <svg viewBox="0 0 120 66" aria-hidden="true">
+      <path className="gauge-track" d="M 14 59 A 46 46 0 0 1 106 59" pathLength="100"/>
+      {fraction != null && <path className="gauge-fill" d="M 14 59 A 46 46 0 0 1 106 59" pathLength="100"
+        strokeDasharray={Math.abs(fraction - zero) * 100 + " 100"}
+        strokeDashoffset={-Math.min(fraction, zero) * 100}/>}
+      {ticks.map(tick => {
+        const angle = Math.PI * (1 - tick);
+        const inner = tick === 0 || tick === .5 || tick === 1 ? 36 : 40;
+        return <line key={tick} x1={60 + inner * Math.cos(angle)} y1={59 - inner * Math.sin(angle)}
+          x2={60 + 45 * Math.cos(angle)} y2={59 - 45 * Math.sin(angle)}/>;
+      })}
+    </svg>
+    <div className="gauge-value"><strong>{text(value)}</strong><span>{unit}</span></div>
+    <div className="gauge-scale"><span>{min}</span><small>{detail || "\u00a0"}</small><span>{max}</span></div>
+  </section>;
+}
 
-/** Instruments remain neutral when genuine ATTITUDE/GPS packets are stale. */
-export default function FlightInstruments({ telemetry }: Props) {
-  const attitudeOk = telemetry?.attitude_fresh === true &&
-    telemetry.roll_deg != null && telemetry.pitch_deg != null;
-  const roll = attitudeOk ? telemetry!.roll_deg! : 0;
-  const pitch = attitudeOk ? telemetry!.pitch_deg! : 0;
-  const yaw = telemetry?.yaw_deg;
-  const heading = telemetry?.attitude_fresh && yaw != null ? (yaw + 360) % 360 : null;
-  return <section className="instrument-dock" aria-label="Flight instruments from received MAVLink">
-    <div className="dock-readouts dock-left">
-      <div><small>ALTITUDE / RELATIVE</small><strong>{fixed(telemetry?.relative_alt_m,2)} <span>m</span></strong></div>
-      <div><small>GROUND SPEED</small><strong>{fixed(telemetry?.groundspeed_mps,2)} <span>m/s</span></strong></div>
-      <div><small>CLIMB RATE</small><strong>{fixed(telemetry?.climb_mps,2)} <span>m/s</span></strong></div>
+function Attitude({ roll, pitch }: { roll: number | null; pitch: number | null }) {
+  const valid = roll != null && pitch != null;
+  return <section className="station-attitude" aria-label="Artificial horizon">
+    <h3>Attitude</h3>
+    <div className="station-horizon" data-valid={valid}>
+      {valid && <div className="station-horizon-world" style={{
+        transform: `rotate(${-roll}deg) translateY(${clamp(pitch, -80, 80) * 2}px)`
+      }}>
+        <div className="station-horizon-line"/>
+        {[-30, -20, -10, 10, 20, 30].map(mark => <span key={mark} style={{ top: `calc(50% - ${mark * 2}px)` }}>
+          <b>{Math.abs(mark)}</b><i/><b>{Math.abs(mark)}</b>
+        </span>)}
+      </div>}
+      <div className="station-reticle"><i/><b/><i/></div>
+      {!valid && <span className="station-horizon-unavailable">NO DATA</span>}
     </div>
-    <div className="primary-instruments">
-      <div className="pfd-group">
-        <div className={"attitude-face " + (!attitudeOk ? "invalid" : "")}
-          title={attitudeOk ? "Live attitude: roll " + roll.toFixed(1) + "°, pitch " + pitch.toFixed(1) + "°" : "No fresh attitude frames"}>
-          {attitudeOk && <div className="attitude-rotator" style={{transform:
-            "rotate(" + (-roll) + "deg) translateY(" + (Math.max(-75,Math.min(75,pitch))*1.6) + "px)"}}>
-            <div className="sky"/>
-            <div className="ground"/>
-            <div className="horizon-bar"/>
-            <div className="pitch-mark upper-mark">+10</div>
-            <div className="pitch-mark lower-mark">−10</div>
-          </div>}
-          <div className="aircraft-reticle"><span/><b/><span/></div>
-          {!attitudeOk && <div className="no-attitude">NO DATA</div>}
-        </div>
-        <div className="instrument-name">ATTITUDE</div>
-        <div className="instrument-values"><span>R {attitudeOk ? roll.toFixed(1) + "°" : "—"}</span><span>P {attitudeOk ? pitch.toFixed(1) + "°" : "—"}</span></div>
+    <div className="station-attitude-values"><span>R {roll == null ? "—" : text(roll) + "°"}</span>
+      <span>P {pitch == null ? "—" : text(pitch) + "°"}</span></div>
+  </section>;
+}
+
+function Heading({ yaw }: { yaw: number | null }) {
+  const heading = yaw == null ? null : bearing(yaw);
+  const reference = heading == null ? 0 : Math.round(heading / 15) * 15;
+  return <section className="station-heading" aria-label="Heading from flight controller yaw">
+    <h3>Heading</h3>
+    <div className="heading-tape" aria-hidden="true">
+      {heading != null && compassTicks.map(offset => {
+        const mark = bearing(reference + offset);
+        return <span key={offset} style={{ left: 50 + (reference + offset - heading) / 1.6 + "%" }}>
+          {cardinal[mark] ?? String(mark).padStart(3, "0")}
+        </span>;
+      })}
+    </div>
+    <strong>{heading == null ? "—" : String(bearing(Math.round(heading))).padStart(3, "0") + "°"}</strong>
+  </section>;
+}
+
+export default function FlightInstruments({ telemetry, aircraftId = "" }: {
+  telemetry?: Telemetry; aircraftId?: string;
+}) {
+  const [trendsOpen, setTrendsOpen] = useState(false);
+  const data = currentTelemetry(telemetry);
+  const trend = useFlightTrend(data);
+  const groundspeed = finite(data?.groundspeed_mps);
+  const airspeed = finite(data?.airspeed_mps);
+  const altitude = finite(data?.relative_alt_m);
+  const climb = finite(data?.climb_mps);
+  const voltage = finite(data?.voltage_v);
+  const battery = finite(data?.battery_pct);
+  const climbScale = Math.max(5, Math.ceil(Math.abs(climb ?? 0) / 5) * 5);
+  const roll = data?.attitude_fresh ? finite(data.roll_deg) : null;
+  const pitch = data?.attitude_fresh ? finite(data.pitch_deg) : null;
+  const yaw = data?.attitude_fresh ? finite(data.yaw_deg) : null;
+  const heartbeat = data?.heartbeat_fresh === true;
+  return <section className="station-instruments" aria-label="Flight instruments from received MAVLink">
+    <div className="instrument-titlebar">
+      <div role="group" aria-label="Flight display">
+        <button type="button" aria-pressed={!trendsOpen} onClick={() => setTrendsOpen(false)}>Instruments</button>
+        <button type="button" aria-pressed={trendsOpen} onClick={() => setTrendsOpen(true)}>Telemetry trends</button>
       </div>
-      <div className="pfd-group">
-        <div className={"compass-face " + (heading == null ? "invalid" : "")} title={heading == null ? "Heading unavailable" : "Heading " + heading.toFixed(0) + "°"}>
-          {heading != null && <>
-            <div className="compass-card" style={{transform:"rotate(" + (-heading) + "deg)"}}>
-              <span className="c-n">N</span><span className="c-e">E</span>
-              <span className="c-s">S</span><span className="c-w">W</span>
-              <span className="c-diag d1"/><span className="c-diag d2"/>
-            </div>
-            <div className="compass-pointer"/>
-          </>}
-          <div className="compass-number">{heading == null ? "—" : heading.toFixed(0).padStart(3,"0") + "°"}</div>
+      <span className={heartbeat ? "readout-good" : "readout-bad"} title="Flight-controller heartbeat">
+        <i aria-hidden="true"/> {heartbeat ? "FRESH" : "NO DATA"}
+      </span>
+    </div>
+    {trendsOpen ? <FlightTrend aircraftId={aircraftId} {...trend}/> :
+      <div className="station-gauge-grid">
+        <Gauge label="Ground speed" value={groundspeed} min={0} max={Math.max(30, Math.ceil((groundspeed ?? 0) / 10) * 10)} unit="m/s"
+          detail={airspeed == null ? "Air —" : "Air " + text(airspeed)}/>
+        <Gauge label="Vertical speed" value={climb} min={-climbScale} max={climbScale} unit="m/s"/>
+        <Attitude roll={roll} pitch={pitch}/>
+        <Heading yaw={yaw}/>
+        <div className="station-flight-readouts">
+          <section><h3>Relative altitude</h3><strong>{text(altitude)} <small>m</small></strong></section>
+          <section><h3>GNSS</h3><strong>{data?.gps_fix_type == null ? "—" : "FIX " + data.gps_fix_type}</strong>
+            <small>{data?.satellites == null ? "—" : data.satellites + " sat"}</small></section>
+          <section><h3>Battery</h3><strong>{text(voltage, 2)} <small>V</small></strong>
+            <small>{battery == null ? "—" : battery + "%"}</small></section>
         </div>
-        <div className="instrument-name">HEADING</div>
-      </div>
-    </div>
-    <div className="dock-readouts dock-right">
-      <div><small>BATTERY VOLTAGE</small><strong>{fixed(telemetry?.voltage_v,2)} <span>V</span></strong></div>
-      <div><small>GPS / SATELLITES</small><strong>{telemetry?.gps_fix_type == null ? "—" : "FIX " + telemetry.gps_fix_type} <span>{telemetry?.satellites == null ? "" : " / " + telemetry.satellites}</span></strong></div>
-      <div><small>FC HEARTBEAT</small><strong className={telemetry?.heartbeat_fresh ? "readout-good" : "readout-bad"}>{telemetry?.heartbeat_fresh ? "FRESH" : "NO DATA"}</strong></div>
-    </div>
+      </div>}
   </section>;
 }

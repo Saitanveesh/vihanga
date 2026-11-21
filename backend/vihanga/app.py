@@ -20,6 +20,8 @@ import sqlite3
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from vihanga.survey import router as survey_router
 from vihanga.operator_contract import BenchQuery, catalog
@@ -72,7 +74,7 @@ def route_length_m(waypoints: list[dict]) -> float:
     return round(total, 2)
 
 
-def create_app(db_path: str | Path | None = None) -> FastAPI:
+def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | None = None) -> FastAPI:
     path = Path(db_path or os.environ.get("VIHANGA_DEV_DB", "data/vihanga-dev.sqlite3"))
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -105,6 +107,22 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     links = LinkManager()
     app.state.links = links
     app.include_router(survey_router)
+    dist_setting = console_dist if console_dist is not None else os.environ.get("VIHANGA_CONSOLE_DIST")
+    dist = Path(dist_setting).resolve() if dist_setting else None
+    if dist is not None:
+        if not (dist / "index.html").is_file() or not (dist / "assets").is_dir():
+            raise RuntimeError("The Vihanga console bundle is missing. Build console/dist before launch.")
+
+        @app.get("/", include_in_schema=False)
+        def operator_console():
+            return FileResponse(dist / "index.html", media_type="text/html",
+                                headers={"Cache-Control": "no-store", "X-Vihanga-Console": "production"})
+
+        @app.get("/vihanga-mark.svg", include_in_schema=False)
+        def operator_mark():
+            return FileResponse(dist / "vihanga-mark.svg", media_type="image/svg+xml")
+
+        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="operator-assets")
 
     def require_vehicle(vehicle_id: str) -> None:
         with db() as con:
@@ -368,7 +386,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/v1/health")
     def health():
         return {"service": "vihanga-standalone", "status": "ok",
-                "deployment": "LOCAL_DEVELOPMENT", "physical_flight_control": False,
+                "deployment": "LOCAL_STATION" if dist is not None else "LOCAL_DEVELOPMENT",
+                "console_served": dist is not None, "physical_flight_control": False,
                 "live_vehicle_stream": any(links.snapshot(i)["status"] == "LIVE" for i in links.sessions)}
 
     @app.get("/api/v1/capabilities")

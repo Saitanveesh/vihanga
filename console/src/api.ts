@@ -153,7 +153,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: { "Content-Type": "application/json", ...(init?.headers || {}) }
     });
   } catch {
-    throw new Error("Vihanga API unavailable. Start the backend on 127.0.0.1:8010.");
+    throw new Error("The local Vihanga operations API is unreachable.");
   }
   const data: unknown = await response.json();
   if (!response.ok) {
@@ -171,11 +171,11 @@ export interface HostSerialPorts {
   scope: "API_HOST_ONLY";
 }
 export const getHostSerialPorts = () => request<HostSerialPorts>("serial/ports");
-export const getHealth = () => request<Health>("health");
-export const getVehicles = () => request<Vehicle[]>("vehicles");
-export const getMissions = () => request<Mission[]>("missions");
+export const getHealth = (signal?: AbortSignal) => request<Health>("health", { signal, cache: "no-store" });
+export const getVehicles = (signal?: AbortSignal) => request<Vehicle[]>("vehicles", { signal, cache: "no-store" });
+export const getMissions = (signal?: AbortSignal) => request<Mission[]>("missions", { signal, cache: "no-store" });
 export const getTelemetry = (id: string) => request<Telemetry>("telemetry/" + encodeURIComponent(id));
-export const getFleetTelemetry = () => request<Record<string, Telemetry>>("fleet/telemetry");
+export const getFleetTelemetry = (signal?: AbortSignal) => request<Record<string, Telemetry>>("fleet/telemetry", { signal, cache: "no-store" });
 export const registerVehicle = (input: VehicleCreate) => jsonPost<{ vehicle_id: string }>("vehicles", input);
 export const saveMission = (input: MissionCreate) => jsonPost<Mission>("missions", input);
 export const previewSurvey = (input: {
