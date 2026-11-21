@@ -164,3 +164,12 @@ body,.workspace,.main-area{background:#070c12;color:#e8f4fa}
   .flight-handoff>div{flex-direction:column;gap:0}
   .connection-settings-panel{border-radius:6px}
 }
+
+/* Compact connection state colors in the night theme. */
+.connection-advanced-methods summary {color:#9cd8ee}
+.connection-advanced-methods summary:hover {color:#f2fbff}
+.connection-advanced-methods .connection-settings-methods button {background:#162a39}
+.connection-configured-note {
+  color:#b8d9e7;background:#102b38;border:1px solid #2d566b;
+}
+.connection-inline-note {color:#9dbac9}
