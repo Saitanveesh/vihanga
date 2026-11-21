@@ -400,7 +400,7 @@ export default function App() {
     } catch (e) { fail(e); } finally { setBusy(false); }
   }
   function openConnection(role?: ConnectionRole) {
-    const requested = role ?? (sample?.primary_transport ? "BACKUP" : "PRIMARY");
+    const requested = role ?? "PRIMARY";
     setConnectionRole(requested);
     setConnectionError("");
     setConnectOpen(true);
