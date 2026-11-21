@@ -210,7 +210,7 @@ export default function NetworkWatch({ aircraftId, telemetry, viewerConnected }:
       </section>}
       <p className="network-watch-disclaimer">
         GCS time is measured browser-to-API response, not Wi-Fi strength.
-        Aircraft RSSI is uncalibrated MAVLink RADIO_STATUS; no dBm or percentage is inferred.
+        MAVLink RC_CHANNELS and RADIO_STATUS are separate raw reports, not dBm or calibrated strength percentages.
       </p>
     </div>}
     <div className="network-watch-sr-status" role="status" aria-live="polite">
