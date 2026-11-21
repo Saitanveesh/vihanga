@@ -60,7 +60,7 @@ export default function OperationsPanel({
 
     <section className="ops-drawer-section">
       <div className="ops-drawer-heading"><UiIcon name="radio" size={17}/>
-        <h3>Telemetry receivers</h3></div>
+        <h3>GCS telemetry links</h3></div>
       <div className={"ops-source " + (source === "PRIMARY" ? "selected" : "")}>
         <div className="ops-source-line">
           <strong>PRIMARY {source === "PRIMARY" && <span className="ops-source-active">SELECTED</span>}</strong>
@@ -70,7 +70,7 @@ export default function OperationsPanel({
       </div>
       <div className={"ops-source " + (source === "BACKUP" ? "selected" : "")}>
         <div className="ops-source-line">
-          <strong>BACKUP {source === "BACKUP" && <span className="ops-source-active">SELECTED</span>}</strong>
+          <strong>STANDBY TELEMETRY {source === "BACKUP" && <span className="ops-source-active">SELECTED</span>}</strong>
           <span className={"ops-state " + sourceClass(backup)}>{stateName(backup)}</span>
         </div>
         <small>{telemetry?.backup_transport || "No standby receiver"}</small>
@@ -85,16 +85,33 @@ export default function OperationsPanel({
       </div>
       <button type="button" className="ops-secondary-action"
         disabled={busy || !telemetry?.primary_transport || !!telemetry?.backup_transport}
-        onClick={onConfigureBackup}>Configure standby receiver</button>
+        onClick={onConfigureBackup}>Add backup telemetry link</button>
       {telemetry?.backup_transport && <button type="button" className="ops-text-action"
-        disabled={busy} onClick={onRemoveBackup}>Remove standby receiver</button>}
-      <p className="ops-note">Manual receive-only source selection. A receiver needs fresh
-        flight-controller heartbeat and attitude before it can be selected.</p>
+        disabled={busy} onClick={onRemoveBackup}>Remove backup telemetry link</button>}
+      <p className="ops-note">This is a second GCS data connection, not the FlySky radio
+        connected to the Pixhawk. RC pilot control remains independent.</p>
     </section>
 
     <section className="ops-drawer-section">
+      <div className="ops-drawer-heading"><UiIcon name="radio" size={17}/>
+        <h3>RC pilot receiver (Pixhawk)</h3></div>
+      <div className="ops-metric-row"><span>RC input</span>
+        <strong>{telemetry?.rc_input_status === "CHANNELS_REPORTED" ? "FC CHANNELS RECEIVED" :
+          telemetry?.rc_input_status === "FC_HEALTHY" ? "FC REPORTS HEALTHY" :
+          telemetry?.rc_input_status === "FC_FAULT" ? "FC REPORTS FAULT" :
+          telemetry?.rc_input_status === "FC_DISABLED" ? "DISABLED" :
+          telemetry?.rc_input_status === "FC_ABSENT" ? "NOT PRESENT" : "NOT REPORTED"}</strong></div>
+      <div className="ops-metric-row"><span>Channels reported</span>
+        <strong>{telemetry?.rc_channels_fresh ? measurement(telemetry.rc_channel_count) : "—"}</strong></div>
+      <div className="ops-metric-row"><span>RC signal</span>
+        <strong>{telemetry?.rc_rssi_raw == null ? "Not reported" : telemetry.rc_rssi_raw + " raw"}</strong></div>
+      <p className="ops-note">RC_CHANNELS from the flight controller, if forwarded through MAVLink.
+        An active handheld transmitter does not automatically create a GCS backup telemetry receiver.
+        Missing RC data can mean that the FC is not streaming RC_CHANNELS.</p>
+    </section>
+    <section className="ops-drawer-section">
       <div className="ops-drawer-heading"><UiIcon name="activity" size={17}/>
-        <h3>Radio &amp; data link</h3></div>
+        <h3>Telemetry modem &amp; data link</h3></div>
       <div className="ops-two-metrics">
         <div><small>Local RSSI</small><strong>{measurement(telemetry?.radio_rssi_raw)}</strong><span>raw 0–254</span></div>
         <div><small>Remote RSSI</small><strong>{measurement(telemetry?.radio_remote_rssi_raw)}</strong><span>raw 0–254</span></div>
