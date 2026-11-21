@@ -221,7 +221,9 @@ export default function App({ account }: {
     let retry: number | undefined;
     let ws: WebSocket | null = null;
     let lastActivity = performance.now();
+    let failures = 0;
     function open() {
+      const openedAt = performance.now();
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const path = "/ws/v1/telemetry/" + encodeURIComponent(selected);
       const socket = new WebSocket(protocol + "//" + window.location.host + path);
@@ -240,12 +242,15 @@ export default function App({ account }: {
           }
         } catch { /* ignore malformed local frame; do not display it */ }
       };
-      socket.onclose = () => {
+      socket.onclose = event => {
         if (stopped) return;
         ws = null;
         viewerReceipt.current = null;
         setLiveTransportConnected(false);
-        retry = window.setTimeout(open, 1600);
+        if (event.code === 1008 || event.code === 4404) return;
+        const stable = performance.now() - openedAt >= 15_000 && performance.now() - lastActivity < VIEWER_SILENCE_MS;
+        failures = stable ? 0 : Math.min(failures + 1, 5);
+        retry = window.setTimeout(open, Math.min(20_000, 800 * 2 ** failures * (.8 + Math.random() * .4)));
       };
       socket.onerror = () => socket.close();
     }
@@ -274,17 +279,25 @@ export default function App({ account }: {
     setObservedTrack([]);
     if (!selected) return;
     let stopped = false;
+    let pending: AbortController | null = null;
     async function refreshTrack() {
+      if (pending) return;
+      const controller = new AbortController();
+      pending = controller;
+      const deadline = window.setTimeout(() => controller.abort(), 2500);
       try {
-        const result = await getObservedTrack(selected);
+        const result = await getObservedTrack(selected, controller.signal);
         if (!stopped) setObservedTrack(result.points);
       } catch {
         if (!stopped) setObservedTrack([]);
+      } finally {
+        window.clearTimeout(deadline);
+        pending = null;
       }
     }
     void refreshTrack();
     const timer = window.setInterval(() => void refreshTrack(), 2800);
-    return () => { stopped = true; window.clearInterval(timer); };
+    return () => { stopped = true; pending?.abort(); window.clearInterval(timer); };
   }, [selected]);
 
   const active = vehicles.find(v => v.vehicle_id === selected);

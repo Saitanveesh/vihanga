@@ -6,6 +6,8 @@ On **Bench**, a Vihanga Cloud receiver shows three separate observations. The Pi
 
 Packet ages use each service's monotonic clock. The display accounts for elapsed time since the diagnostic report. It identifies evidence gaps such as a connected Pi with no fresh validated UART frames, relay ingress going stale, or fresh relay packets with a stale station viewer. Reports older than six seconds disappear. These observations can locate the first stale leg, while intermittent faults can require a longer capture.
 
+The station keeps polling the authenticated broker diagnostics during viewer reconnects. Pi and station reconnect delays increase with jitter to a 20-second maximum. Brief successful handshakes still count as part of the fault. A station receiver resets the escalation after a connection of at least 15 seconds with fresh flight-controller evidence at disconnect.
+
 The Pi negotiates diagnostic support with the independent broker. Older Pi or broker builds can continue forwarding MAVLink. The legacy Oracle relay and direct LAN receivers show station-level evidence. Upgrade the independent broker and Pi together to obtain upstream evidence. Route `GET /api/v1/diagnostics/{vehicle_id}` through the same private TLS gateway as the broker WebSockets and forward the viewer Authorization header.
 
 ## Enable operator sign-in

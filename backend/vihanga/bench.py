@@ -43,6 +43,7 @@ def receiver_snapshot(snapshot: dict, receiver: str) -> dict:
         "error_code": code(snapshot.get(f"{receiver}_error_code")),
         "system_id": number(snapshot.get(f"{receiver}_system_id")),
         "frames_total": number(snapshot.get(f"{receiver}_frames_total")),
+        "reconnect_attempt": number(snapshot.get(f"{receiver}_reconnect_attempt")),
         "path_evidence": snapshot.get(f"{receiver}_path_evidence"),
     }
 

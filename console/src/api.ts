@@ -103,6 +103,7 @@ export interface Telemetry {
   primary_age_ms?: number | null;
   primary_system_id?: number | null;
   primary_frames_total?: number | null;
+  primary_reconnect_attempt?: number | null;
   primary_path_evidence?: PathEvidence | null;
   backup_status?: string;
   backup_transport?: string | null;
@@ -113,6 +114,7 @@ export interface Telemetry {
   backup_age_ms?: number | null;
   backup_system_id?: number | null;
   backup_frames_total?: number | null;
+  backup_reconnect_attempt?: number | null;
   backup_path_evidence?: PathEvidence | null;
   airspeed_mps: number | null;
   throttle_pct: number | null;
@@ -208,6 +210,7 @@ export interface BenchReceiver {
   error_code: string | null;
   system_id: number | null;
   frames_total?: number | null;
+  reconnect_attempt?: number | null;
   path_evidence?: PathEvidence | null;
 }
 export interface BenchCapture {
@@ -288,8 +291,8 @@ export interface ObservedTrack {
   count: number;
   warning: string;
 }
-export const getObservedTrack = (id: string) =>
-  request<ObservedTrack>("flight-tracks/" + encodeURIComponent(id));
+export const getObservedTrack = (id: string, signal?: AbortSignal) =>
+  request<ObservedTrack>("flight-tracks/" + encodeURIComponent(id), { signal, cache: "no-store" });
 
 export type OperatorGroup = "FLIGHT" | "NAVIGATION" | "MISSIONS" | "PARAMETERS" | "DIAGNOSTICS" | "SETUP" | "LOGS";
 export type BenchReadKind =

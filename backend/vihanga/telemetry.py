@@ -22,7 +22,9 @@ from pymavlink import mavutil
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 from vihanga.link_evidence import UpstreamEvidence, poll_upstream
+from random import uniform
 
 
 class StrictModel(BaseModel):
@@ -434,6 +436,8 @@ class Session:
     bench_last_request_at: float = -1.0
     bench_sent: int = 0
     upstream: tuple[UpstreamEvidence, float] | None = None
+    connected_at: float | None = None
+    reconnect_attempt: int = 0
 
     def snapshot(self) -> dict:
         state = self.state
@@ -449,8 +453,8 @@ class Session:
         return {
             "vehicle_id": self.vehicle_id, "transport": self.kind,
             "status": state, "error_code": self.error_code,
-            "path_evidence": self.upstream[0].snapshot(self.upstream[1], sample["age_ms"])
-                             if self.upstream and self.state == "CONNECTED" else None,
+            "path_evidence": self.upstream[0].snapshot(self.upstream[1], sample["age_ms"]) if self.upstream else None,
+            "reconnect_attempt": self.reconnect_attempt,
             "flight_control_enabled": False, **sample
         }
 
@@ -512,6 +516,7 @@ class LinkManager:
             "primary_system_id": primary.projector.system_id if primary else None,
             "primary_path_evidence": pri["path_evidence"] if pri else None,
             "primary_frames_total": pri["frames_total"] if pri else None,
+            "primary_reconnect_attempt": pri["reconnect_attempt"] if pri else None,
             "backup_status": bak["status"] if bak else "NOT_CONFIGURED",
             "backup_transport": bak["transport"] if bak else None,
             "backup_error_code": bak["error_code"] if bak else None,
@@ -523,6 +528,7 @@ class LinkManager:
             "backup_serial_port": getattr(backup.serial_port, "port", None) if backup else None,
             "backup_path_evidence": bak["path_evidence"] if bak else None,
             "backup_frames_total": bak["frames_total"] if bak else None,
+            "backup_reconnect_attempt": bak["reconnect_attempt"] if bak else None,
         }
 
     async def start_backup(self, request):
@@ -769,14 +775,8 @@ class LinkManager:
                     open_timeout=5, close_timeout=3, ping_interval=15,
                     max_size=1024, max_queue=16, compression=None
                 ) as ws:
-                    session.state = "CONNECTED"
-                    failures = 0
-                    async for raw in ws:
-                        if isinstance(raw, bytes):
-                            session.projector.push(raw)
-                session.projector = MAVLinkProjector(session.projector.system_id)
-                session.state, session.error_code = "RECONNECTING", "LAN_VIEWER_CLOSED"
-                failures += 1
+                    await self._receive_view(session, ws)
+                error = "LAN_VIEWER_CLOSED"
             except asyncio.CancelledError:
                 raise
             except (ssl.SSLError, ssl.CertificateError):
@@ -784,10 +784,29 @@ class LinkManager:
                 session.state, session.error_code = "ERROR", "LAN_TLS_TRUST_REJECTED"
                 return
             except Exception:
-                session.projector = MAVLinkProjector(session.projector.system_id)
-                session.state, session.error_code = "RECONNECTING", "LAN_VIEWER_UNAVAILABLE"
-                failures += 1
-            await asyncio.sleep(min(2 ** min(failures, 4), 20))
+                error = "LAN_VIEWER_UNAVAILABLE"
+            failures = await self._retry_view(session, failures, error)
+
+    @staticmethod
+    async def _receive_view(session: Session, ws) -> None:
+        session.state = "CONNECTED"
+        session.connected_at = time.monotonic()
+        async for raw in ws:
+            if isinstance(raw, bytes):
+                session.projector.push(raw)
+
+    @staticmethod
+    async def _retry_view(session: Session, failures: int, error: str) -> int:
+        last = session.projector.snapshot()
+        stable = (session.connected_at is not None and time.monotonic() - session.connected_at >= 15
+                  and last["heartbeat_fresh"] and last["attitude_fresh"])
+        failures = 1 if stable else min(failures + 1, 5)
+        session.connected_at = None
+        session.reconnect_attempt = failures
+        session.projector = MAVLinkProjector(session.projector.system_id)
+        session.state, session.error_code = "RECONNECTING", error
+        await asyncio.sleep(min(20, 2 ** failures * uniform(.8, 1.2)))
+        return failures
 
     async def start_broker(self, request: BrokerConnect):
         if request.vehicle_id in self.sessions:
@@ -802,39 +821,31 @@ class LinkManager:
     async def _run_broker(self, session: Session, origin: str, token: str):
         """WebSocket viewer with vehicle-bound token and no command write path."""
         failures = 0
-        while True:
-            try:
-                session.state = "CONNECTING" if failures == 0 else "RECONNECTING"
-                session.error_code = None
-                # Replace projector before every reconnect, no stale epochs.
-                session.projector = MAVLinkProjector(session.projector.system_id)
-                uri = origin.replace("https://", "wss://", 1) + (
-                    "/ws/v1/view/" + session.vehicle_id)
-                async with connect(uri,
-                                   additional_headers={"Authorization": "Bearer " + token},
-                                   open_timeout=10, close_timeout=3, ping_interval=15,
-                                   max_size=1024, max_queue=16) as ws:
-                    session.state = "CONNECTED"
-                    failures = 0
-                    monitor = asyncio.create_task(poll_upstream(session, origin, token))
-                    try:
-                        async for raw in ws:
-                            if isinstance(raw, bytes):
-                                session.projector.push(raw)
-                    finally:
-                        monitor.cancel()
-                        await asyncio.gather(monitor, return_exceptions=True)
-                        session.upstream = None
-                session.projector = MAVLinkProjector(session.projector.system_id)
-                session.state, session.error_code = "RECONNECTING", "BROKER_VIEWER_CLOSED"
-                failures += 1
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                session.projector = MAVLinkProjector(session.projector.system_id)
-                session.state, session.error_code = "RECONNECTING", "BROKER_UNAVAILABLE"
-                failures += 1
-            await asyncio.sleep(min(2 ** min(failures, 4), 20))
+        # A working diagnostics endpoint can explain a failed viewer handshake or an idle stream.
+        monitor = asyncio.create_task(poll_upstream(session, origin, token))
+        uri = origin.replace("https://", "wss://", 1) + "/ws/v1/view/" + session.vehicle_id
+        try:
+            while True:
+                try:
+                    async with connect(uri, additional_headers={"Authorization": "Bearer " + token},
+                                       open_timeout=10, close_timeout=3, ping_interval=15,
+                                       max_size=1024, max_queue=16) as ws:
+                        session.error_code = None
+                        await self._receive_view(session, ws)
+                    error = "BROKER_VIEWER_CLOSED"
+                except InvalidStatus as exc:
+                    error = ("BROKER_AUTH_REJECTED" if exc.response.status_code in (401, 403)
+                             else "BROKER_UNAVAILABLE")
+                except ConnectionClosed as exc:
+                    error = ("BROKER_AUTH_REJECTED" if exc.rcvd and exc.rcvd.code == 4401
+                             else "BROKER_VIEWER_CLOSED")
+                except Exception:
+                    error = "BROKER_UNAVAILABLE"
+                failures = await self._retry_view(session, failures, error)
+        finally:
+            monitor.cancel()
+            await asyncio.gather(monitor, return_exceptions=True)
+            session.upstream = None
 
     async def start_cloud(self, request: CloudConnect):
         if request.vehicle_id in self.sessions:
@@ -871,20 +882,11 @@ class LinkManager:
                 async with connect(uri, additional_headers={"Authorization": "Bearer " + token},
                                    open_timeout=10, close_timeout=3, ping_interval=15,
                                    max_size=1024, max_queue=16) as ws:
-                    failures = 0
-                    session.state = "CONNECTED"
-                    async for raw in ws:
-                        if isinstance(raw, bytes):
-                            session.projector.push(raw)
-                session.projector = MAVLinkProjector(session.projector.system_id)
-                session.state, session.error_code = "RECONNECTING", "CLOUD_VIEWER_CLOSED"
-                failures = max(failures, 1)
+                    await self._receive_view(session, ws)
+                error = "CLOUD_VIEWER_CLOSED"
             except asyncio.CancelledError:
                 raise
             except Exception:
                 # Do not expose relay address, token or user credentials.
-                session.projector = MAVLinkProjector(session.projector.system_id)
-                session.state, session.error_code = "RECONNECTING", "PRIVATE_CLOUD_UNAVAILABLE"
-                failures += 1
-            # Exponential, bounded reconnect. Never automatically dispatch commands.
-            await asyncio.sleep(min(2 ** min(failures, 4), 20))
+                error = "PRIVATE_CLOUD_UNAVAILABLE"
+            failures = await self._retry_view(session, failures, error)

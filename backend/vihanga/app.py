@@ -330,15 +330,21 @@ def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | 
             await socket.close(code=4404)
             return
         await socket.accept()
+        peer = asyncio.create_task(socket.receive())
         try:
-            while True:
+            while not peer.done():
                 if access.enabled and access.identify(token) is None:
                     await socket.close(code=1008)
                     break
-                await socket.send_json(links.snapshot(vehicle_id))
-                await asyncio.sleep(0.25)
-        except (WebSocketDisconnect, RuntimeError, OSError):
+                await asyncio.wait_for(socket.send_json(links.snapshot(vehicle_id)), timeout=2)
+                await asyncio.wait({peer}, timeout=0.25)
+            if peer.done() and peer.result().get("type") == "websocket.receive":
+                await socket.close(code=1008)
+        except (WebSocketDisconnect, RuntimeError, OSError, TimeoutError):
             pass
+        finally:
+            peer.cancel()
+            await asyncio.gather(peer, return_exceptions=True)
 
     @app.on_event("shutdown")
     async def stop_links():

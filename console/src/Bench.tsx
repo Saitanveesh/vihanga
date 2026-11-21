@@ -44,6 +44,7 @@ function receiver(telemetry: Telemetry | undefined, role: BenchRole): BenchRecei
     frame_rate_hz: telemetry?.[`${role}_frame_rate_5s_hz`] ?? null,
     system_id: telemetry?.[`${role}_system_id`] ?? null,
     frames_total: telemetry?.[`${role}_frames_total`] ?? null,
+    reconnect_attempt: telemetry?.[`${role}_reconnect_attempt`] ?? null,
     path_evidence: telemetry?.[`${role}_path_evidence`] ?? null,
     error_code: telemetry?.[`${role}_error_code`] ?? null,
   };
@@ -77,6 +78,8 @@ function ReceiverCard({ title, data, active }: { title: string; data: BenchRecei
       <div><dt>Last packet</dt><dd>{format(data.age_ms, "ms")}</dd></div>
       <div><dt>Frame rate</dt><dd>{format(data.frame_rate_hz, "Hz")}</dd></div>
       <div><dt>Expected SYSID</dt><dd>{data.system_id ?? "—"}</dd></div>
+      {data.status === "RECONNECTING" && Boolean(data.reconnect_attempt) &&
+        <div><dt>Reconnect backoff</dt><dd>Level {data.reconnect_attempt}</dd></div>}
     </dl>
     {data.error_code && <p className="bench-error-code">{label(data.error_code)}</p>}
     <ReceiverPath data={data}/>
