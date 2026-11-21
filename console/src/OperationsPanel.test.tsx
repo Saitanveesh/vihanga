@@ -49,6 +49,22 @@ describe("read-only fleet link diagnostics", () => {
     expect(screen.getAllByText("fault")).toHaveLength(2);
   });
 
+  it("recognizes RC channels from Pixhawk without fabricating a GCS backup receiver", () => {
+    const onConfigureBackup = vi.fn();
+    render(<OperationsPanel aircraftId="AH-HW-001"
+      telemetry={reading({
+        rc_input_status:"CHANNELS_REPORTED",rc_channels_fresh:true,
+        rc_channel_count:6,rc_rssi_raw:null,backup_transport:null
+      })}
+      busy={false} onClose={vi.fn()} onConfigureBackup={onConfigureBackup}
+      onSelect={vi.fn()} onRemoveBackup={vi.fn()}/>);
+    expect(screen.getByText("FC CHANNELS RECEIVED")).toBeTruthy();
+    expect(screen.getByText("6")).toBeTruthy();
+    expect(screen.getAllByText("Not reported").length).toBeGreaterThan(0);
+    expect(screen.getByText("No standby receiver")).toBeTruthy();
+    expect(screen.getByRole("button",{name:"Add backup telemetry link"})).toBeTruthy();
+  });
+
   it("never permits an unverified primary return", () => {
     const onSelect = vi.fn();
     const bad = reading({
