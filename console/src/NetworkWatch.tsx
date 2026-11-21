@@ -181,6 +181,16 @@ export default function NetworkWatch({ aircraftId, telemetry, viewerConnected }:
           <div><dt>Last MAVLink packet</dt><dd>{formatMs(telemetry?.age_ms)}</dd></div>
           <div><dt>Received packet rate</dt><dd>{telemetry?.status === "LIVE"
             ? telemetry.frame_rate_5s_hz.toFixed(1) + " Hz" : "—"}</dd></div>
+          <div><dt>RC pilot input</dt><dd>{telemetry?.rc_input_status === "CHANNELS_REPORTED"
+            ? "Channels observed" : telemetry?.rc_input_status === "FC_HEALTHY"
+            ? "FC reports healthy" : telemetry?.rc_input_status === "FC_FAULT"
+            ? "FC reports fault" : telemetry?.rc_input_status === "FC_DISABLED"
+            ? "Disabled" : telemetry?.rc_input_status === "FC_ABSENT"
+            ? "Absent" : "Not reported"}</dd></div>
+          <div><dt>RC channels</dt><dd>{telemetry?.rc_channels_fresh
+            ? telemetry.rc_channel_count : "—"}</dd></div>
+          <div><dt>RC RSSI</dt><dd>{telemetry?.rc_rssi_raw != null
+            ? telemetry.rc_rssi_raw + " raw" : "Not reported"}</dd></div>
           <div><dt>Local radio RSSI</dt><dd>{hasRadio ? telemetry?.radio_rssi_raw + " raw" : "Not reported"}</dd></div>
           <div><dt>Remote radio RSSI</dt><dd>{telemetry?.status === "LIVE" &&
             telemetry?.radio_remote_rssi_raw != null ?
