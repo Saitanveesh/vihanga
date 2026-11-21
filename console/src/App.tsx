@@ -587,7 +587,7 @@ export default function App() {
           </div>
         </header>
         <div className={"map-stage " + ((section === "FLIGHT" || section === "PLAN") ? "has-operations" : "")}>
-          <GeoMap polygon={section === "PLAN" ? polygon : EMPTY_POLYGON} route={section === "PLAN" || section === "HISTORY" ? waypoints : EMPTY_ROUTE}
+          <GeoMap polygon={section === "PLAN" ? polygon : EMPTY_POLYGON} route={section === "PLAN" || section === "HISTORY" || section === "FLIGHT" ? waypoints : EMPTY_ROUTE}
             track={observedTrack} position={location} drawing={section === "PLAN" && drawMode !== "NONE"}
             basemap={basemap} centerSignal={centerSignal} fitSignal={fitSignal}
             selectedWaypoint={selectedWaypoint} onWaypointSelect={setSelectedWaypoint}
@@ -639,7 +639,18 @@ export default function App() {
               <div><span>Observed GNSS points</span><strong>{observedTrack.length}</strong></div>
               <div><span>Local viewer</span><strong>{liveTransportConnected ? "STREAMING" : "HTTP FALLBACK"}</strong></div>
             </div>
-            <p className="flight-status-note">Telemetry monitoring <span>·</span> Read-only connection</p>
+            <div className="flight-handoff">
+              <div><strong>Planned route</strong><span>{waypoints.length >= 2
+                ? waypoints.length + " waypoints · pending mission upload" : "No route selected"}</span></div>
+              <div><strong>Aircraft state</strong><span>{sample?.heartbeat_fresh
+                ? sample.armed === true ? "ARMED" : sample.armed === false ? "DISARMED" : "UNKNOWN"
+                : "NO LIVE HEARTBEAT"}</span></div>
+              <div><strong>Navigation</strong><span>{sample?.gps_fix_type != null && sample.gps_fix_type >= 3
+                ? "GNSS FIX " + sample.gps_fix_type : "GNSS NOT READY"}</span></div>
+              <button type="button" onClick={() => navigate("CONTROL")}>Open flight controls</button>
+              <p>Flight execution requires mission upload, FC acknowledgements and an authorized
+                command channel. Displaying a route does not send it to Pixhawk.</p>
+            </div>
           </div>}
           {panelOpen && section === "PLAN" && <section id="operator-panel" className="float-panel plan-panel">
             <div className="panel-title">
@@ -756,7 +767,17 @@ export default function App() {
                 onChange={e => setMissionTitle(e.target.value)}/></label>
               <button type="submit" className="major" disabled={busy || waypoints.length < 2 || !selected || !!openedMission}>Save mission draft</button>
             </form>
-            <p className="panel-footnote">Offline draft. Check terrain, obstacles and airspace before use. No aircraft upload.</p>
+            <div className="plan-handoff">
+              <button type="button" className="flight-handoff-button"
+                disabled={waypoints.length < 2 || !selected} onClick={() => {
+                  setDrawMode("NONE");
+                  navigate("FLIGHT");
+                  setFitSignal(x => x + 1);
+                }}>Review for Flight</button>
+              <p>Carry this route into the Flight workspace. This does not arm,
+                upload a mission or start the motors.</p>
+            </div>
+            <p className="panel-footnote">Check terrain, obstacles and airspace before flight. Mission upload is not yet integrated.</p>
           </section>}
           {panelOpen && section === "FLEET" && <section id="operator-panel" className="float-panel utility-panel">
             <div className="panel-title"><h2>Aircraft registry</h2><span>{vehicles.length} registered</span><button type="button" className="panel-close" onClick={() => setPanelOpen(false)} aria-label="Close panel" title="Close panel">×</button></div>
