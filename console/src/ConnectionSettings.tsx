@@ -269,8 +269,8 @@ export default function ConnectionSettings({
               Local loopback only. This is not a remote IP connection.
             </p>}
             {role === "BACKUP" && <p className="connection-settings-info">
-              Backup uses a different transport from primary. Switching the active receiver
-              requires fresh MAVLink telemetry and explicit selection.
+              Standby is an additional GCS telemetry transport, not the RC radio paired to Pixhawk.
+              Switching monitoring sources requires fresh MAVLink telemetry and explicit selection.
             </p>}
           </div>
           {(localError || error) && <p role="alert" className="connection-settings-error">
