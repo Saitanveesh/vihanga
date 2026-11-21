@@ -419,6 +419,12 @@ export default function App({ account, onInitialChecksComplete }: {
     setDrawMode("NONE");
     setAlert(""); setNotice("");
   }
+  function startDrawing(mode: "POLYGON" | "WAYPOINT") {
+    previewRevision.current += 1;
+    setDrawMode(mode);
+    if (window.matchMedia?.("(max-width: 700px)").matches) setPanelOpen(false);
+  }
+
   function clicked(point: MapPoint) {
     if (section !== "PLAN" || drawMode === "NONE") return;
     setOpenedMission(null);
@@ -427,8 +433,9 @@ export default function App({ account, onInitialChecksComplete }: {
       setPolygon(old => [...old, point]);
     }
     if (drawMode === "WAYPOINT") {
-      setSelectedWaypoint(manual.length);
-      setManual(old => [...old, { ...point, altitude_m: altitude }]);
+      const route = [...waypoints, { ...point, altitude_m: altitude }];
+      setManual(route);
+      setSelectedWaypoint(route.length - 1);
     }
   }
 
@@ -752,9 +759,10 @@ export default function App({ account, onInitialChecksComplete }: {
         <div className="identity"><span className="vihanga-logo"><img src="/vihanga-mark.svg" alt=""/></span><b>VIHANGA</b></div>
         <nav aria-label="Workspaces">
           {primarySections.map(item => <button key={item.label} type="button"
+            aria-label={item.label} title={sectionTitles[item.label]}
             className={"rail-item " + (section === item.label ? "selected" : "")}
             onClick={() => navigate(item.label)} aria-current={section === item.label ? "page" : undefined}>
-            <span className="rail-icon"><UiIcon name={item.icon} size={21}/></span><small>{item.label}</small>
+            <span className="rail-icon" aria-hidden="true"><UiIcon name={item.icon} size={28}/></span>
           </button>)}
           <select className="workspace-tools" aria-label="Station tools"
             value={["FLEET", "LINK", "BENCH", "HISTORY"].includes(section) ? section : ""}
@@ -866,10 +874,11 @@ export default function App({ account, onInitialChecksComplete }: {
           {section === "PLAN" && <div className="operation-ribbon" role="toolbar" aria-label="Planning tools">
             <button className={section === "PLAN" && drawMode === "POLYGON" ? "active" : ""}
               aria-pressed={section === "PLAN" && drawMode === "POLYGON"}
-              onClick={() => { navigate("PLAN"); setDrawMode("POLYGON"); }} title="Draw survey boundary"><UiIcon name="plan" size={15}/> <span>Survey</span></button>
+              onClick={() => startDrawing("POLYGON")} title="Draw survey boundary"><UiIcon name="plan" size={15}/> <span>Survey</span></button>
             <button className={section === "PLAN" && drawMode === "WAYPOINT" ? "active" : ""}
               aria-pressed={section === "PLAN" && drawMode === "WAYPOINT"}
-              onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints"><UiIcon name="map" size={15}/> <span>Waypoints</span></button>
+              onClick={() => startDrawing("WAYPOINT")} title="Add manual waypoints"><UiIcon name="map" size={15}/> <span>Waypoints</span></button>
+            {drawMode !== "NONE" && <button type="button" onClick={() => setDrawMode("NONE")}>Finish</button>}
             <button onClick={() => navigate("HISTORY")} title="View stored mission drafts"><UiIcon name="history" size={15}/> <span>Routes</span></button>
           </div>}
           {!panelOpen && section !== "FLIGHT" && <div className="panel-launcher">
@@ -914,17 +923,8 @@ export default function App({ account, onInitialChecksComplete }: {
                 disabled={!polygon.length && !waypoints.length && !missionTitle}
                 title="Reset planner settings and geometry; saved missions remain intact">Reset</button>
             </div>
-            <div className="toggle-row compact-row">
-              <button type="button" className={drawMode === "POLYGON" ? "active" : ""}
-                onClick={() => { previewRevision.current += 1; setDrawMode(drawMode === "POLYGON" ? "NONE" : "POLYGON"); setOpenedMission(null); }}>
-                Draw boundary</button>
-              <button type="button" className={drawMode === "WAYPOINT" ? "active" : ""}
-                onClick={() => { previewRevision.current += 1; setDrawMode(drawMode === "WAYPOINT" ? "NONE" : "WAYPOINT"); setOpenedMission(null); }}>
-                Add waypoint</button>
-            </div>
             {drawMode !== "NONE" && <div className="drawing-note">
               Map editing active · Click to add {drawMode === "POLYGON" ? "survey vertices" : "route waypoints"}.
-              Vertices can be dragged on the map.
             </div>}
             <div className="survey-controls">
               <label>Line / ring spacing

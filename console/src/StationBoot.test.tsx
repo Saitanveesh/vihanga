@@ -32,7 +32,7 @@ const health = {
 };
 
 describe("station splash", () => {
-  it("displays only the emblem and hands off automatically after the reveal", () => {
+  it("displays the emblem and wordmark and hands off automatically after the reveal", () => {
     vi.useFakeTimers();
     const cancel = vi.fn();
     const animate = vi.fn(() => ({ cancel }));
@@ -42,7 +42,7 @@ describe("station splash", () => {
     const emblem = screen.getByRole("img", { name: "VIHANGA" });
     expect(emblem.localName).toBe("svg");
     expect(screen.getByRole("main").childElementCount).toBe(1);
-    expect(view.container.textContent).toBe("");
+    expect(view.container.textContent).toBe("VIHANGA");
     expect(screen.queryByRole("button")).toBeNull();
     expect(animate).toHaveBeenCalledTimes(1);
     act(() => vi.advanceTimersByTime(2000));

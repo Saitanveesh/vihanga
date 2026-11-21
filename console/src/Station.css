@@ -552,3 +552,42 @@ body, .workspace, .workspace button, .workspace input, .workspace select {
 .workspace .video-panel[data-expanded="true"] .video-container { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .workspace .video-panel[data-expanded="true"] iframe { flex: 1; min-height: 0; height: auto; }
 @media (max-width: 600px) { .workspace .workspace-tools { width: 64px; flex: 0 0 64px; } }
+
+.station-splash-brand {
+  display: grid;
+  justify-items: center;
+  gap: clamp(12px, 2vmin, 20px);
+  color: #f4f4f4;
+  font: 600 clamp(17px, 3vmin, 26px)/1 var(--station-ui);
+  letter-spacing: .26em;
+}
+.station-splash-brand span { padding-inline-start: .26em; }
+.workspace {
+  --station-base: #000;
+  --station-panel: #101010;
+  --station-line: #393939;
+  --station-text: #f6f6f6;
+  --station-muted: #b8b8b8;
+  --station-accent: #eee;
+}
+.workspace .rail, .workspace .toolbar, .workspace .station-statusbar,
+.workspace .instrument-titlebar, .workspace .map-tools { background: #080808; border-color: var(--station-line); }
+.workspace .map-tools select, .workspace .toolbar .toolbar-button:hover:not(:disabled) { background: #242424; }
+.workspace .toolbar .toolbar-button.accent, .workspace .rail-item.selected { color: #080808; background: #eee; }
+.workspace .rail-item.selected::before { background: #fff; }
+.workspace .toolbar .toolbar-button.accent:hover:not(:disabled) { background: #fff; color: #080808; }
+.workspace .rail-item { justify-content: center; align-items: center; min-height: 44px; }
+.workspace .rail-item svg { width: 28px; height: 28px; }
+.workspace .rail-item.selected .rail-icon { color: #080808; }
+.workspace .map-stage .map-canvas { position: absolute; inset: 0; }
+.workspace .drawing-note button { margin-inline-start: 6px; }
+@media (min-width: 601px) {
+  .workspace .rail { width: 68px; flex: 0 0 68px; }
+}
+
+.workspace .plan-panel .route-row, .workspace .plan-panel .route-row:nth-child(even),
+.workspace .plan-panel .route-row input, .workspace .plan-panel .plan-tabs,
+.workspace .operation-ribbon { background: #151515; border-color: #404040; }
+.workspace .plan-panel .route-row.picked { background: #292721; }
+.workspace .plan-panel .export-actions button, .workspace .plan-panel .save-form .major,
+.workspace .plan-panel .plan-buttons .major { background: #292929; color: #fafafa; border-color: #525252; }

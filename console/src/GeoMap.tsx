@@ -264,8 +264,23 @@ export default function GeoMap({
       if (event.originalEvent.defaultPrevented || movingVertex.current !== null) return;
       if (!editBoundaryRef.current && waypointCallback.current) {
         const layers = WAYPOINT_LAYERS.filter(id => map.getLayer(id));
-        const pin = layers.length ? map.queryRenderedFeatures(event.point, { layers })[0] : undefined;
-        const index = Number(pin?.properties?.index);
+        const { x, y } = event.point;
+        const hits = layers.length ? map.queryRenderedFeatures(
+          [[x - 7, y - 7], [x + 7, y + 7]], { layers }
+        ) : [];
+        let index = 0;
+        let closest = Infinity;
+        for (const hit of hits) {
+          const candidate = Number(hit.properties?.index);
+          const point = geometryRef.current.route[candidate - 1];
+          if (!point || !Number.isInteger(candidate)) continue;
+          const pixel = map.project([point.longitude, point.latitude]);
+          const distance = Math.hypot(pixel.x - x, pixel.y - y);
+          if (distance < closest) {
+            closest = distance;
+            index = candidate;
+          }
+        }
         if (Number.isInteger(index) && index >= 1 && index <= geometryRef.current.route.length) {
           waypointCallback.current(index - 1);
           return;

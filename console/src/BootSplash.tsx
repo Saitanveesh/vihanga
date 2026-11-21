@@ -11,7 +11,7 @@ function canAnimate(preference = window.matchMedia?.(reducedMotion)) {
 
 export default function BootSplash({ ready, onComplete }: { ready: boolean; onComplete: () => void }) {
   const surface = useRef<HTMLElement>(null);
-  const logo = useRef<SVGSVGElement>(null);
+  const logo = useRef<HTMLDivElement>(null);
   const [motion, setMotion] = useState(() => canAnimate());
   const [revealed, setRevealed] = useState(false);
 
@@ -56,7 +56,8 @@ export default function BootSplash({ ready, onComplete }: { ready: boolean; onCo
   }, [motion, ready, revealed, onComplete]);
 
   return <main className="station-splash" aria-busy="true" ref={surface}>
-    <svg className="station-splash-logo" ref={logo} viewBox="8 23 80 56" width="208" height="146"
+    <div ref={logo} className="station-splash-brand">
+    <svg className="station-splash-logo" viewBox="8 23 80 56" width="208" height="146"
       role="img" aria-label="VIHANGA">
       <defs>
         <linearGradient id="boot-wing" x1="0" y1="0" x2="1" y2="1">
@@ -72,5 +73,7 @@ export default function BootSplash({ ready, onComplete }: { ready: boolean; onCo
       <path d="M48 54v16" fill="none" stroke="#09141f" strokeWidth="4" strokeLinecap="round"/>
       <path d="M47 74h2" stroke="#8dcbe9" strokeWidth="3" strokeLinecap="round"/>
     </svg>
+      <span aria-hidden="true">VIHANGA</span>
+    </div>
   </main>;
 }

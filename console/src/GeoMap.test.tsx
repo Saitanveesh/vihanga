@@ -29,7 +29,9 @@ vi.mock("maplibre-gl", () => {
     getLayer(id: string) { return stats.layers.has(id); }
     hasImage(id: string) { return stats.images.has(id); }
     addImage(id: string) { stats.images.add(id); }
-    queryRenderedFeatures() { return stats.hit ? [{ properties: { index: stats.hit } }] : []; }
+    project() { return { x: 43, y: 40 }; }
+    queryRenderedFeatures(box: number[][]) {
+      if (box[0][0] > 43 || box[1][0] < 43) return []; return stats.hit ? [{ properties: { index: stats.hit } }] : []; }
     resize() { stats.resizeCalls++; }
     remove() {}
     setStyle() { this.source = null; }
@@ -142,11 +144,16 @@ describe("geographic map visual geometry regression", () => {
     const view = render(<GeoMap {...props}/>);
     stats.hit = 2;
     const click = stats.click as unknown as (event: object) => void;
-    const point = { originalEvent: { defaultPrevented: false }, point: [40, 40],
+    const point = { originalEvent: { defaultPrevented: false }, point: { x: 40, y: 40 },
       lngLat: { lat: origin.latitude, lng: origin.longitude } };
     click(point);
     expect(props.onWaypointSelect).toHaveBeenCalledWith(1);
     expect(props.onMapClick).not.toHaveBeenCalled();
+    stats.hit = undefined;
+    click(point);
+    expect(props.onMapClick).toHaveBeenCalledWith(origin);
+    props.onMapClick.mockClear();
+    stats.hit = 2;
     view.rerender(<GeoMap {...props} selectedWaypoint={1} editingBoundary/>);
     click(point);
     expect(props.onMapClick).toHaveBeenCalledWith(origin);
