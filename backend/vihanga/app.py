@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 import json
 import os
+import platform
 import re
 import sqlite3
 from uuid import uuid4
@@ -111,6 +112,24 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         if exists is None:
             raise HTTPException(status_code=404, detail="Aircraft not registered")
 
+    @app.get("/api/v1/serial/ports")
+    def list_serial_ports():
+        """Enumerate ports on the API host only, never the remote browser PC.
+
+        Oracle/Linux cannot enumerate a Windows COM6 even when the user opens
+        the console in Chrome on Windows. No device is opened by this query.
+        """
+        from serial.tools import list_ports
+        found = sorted({
+            port.device
+            for port in list_ports.comports()
+            if re.fullmatch(r"(?:COM[1-9][0-9]{0,2}|/dev/tty(?:USB|ACM)[0-9]{1,2})",
+                            port.device)
+        })[:32]
+        return {"host_platform": platform.system().upper(),
+                "ports": found,
+                "scope": "API_HOST_ONLY"}
+
     @app.post("/api/v1/links/broker")
     async def connect_broker(request: BrokerConnect):
         require_vehicle(request.vehicle_id)
@@ -149,9 +168,19 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         except OSError as ex:
             raise HTTPException(status_code=409, detail="Local UDP port unavailable") from ex
 
+    def check_serial_host(port: str) -> None:
+        if port.upper().startswith("COM") and platform.system() != "Windows":
+            raise HTTPException(status_code=409, detail=(
+                "COM ports belong to a Windows machine. This API runs on "
+                + platform.system() + " (Oracle/Linux). It cannot open your "
+                "laptop's COM6. Use a local Windows GCS backend for USB, or "
+                "configure an authenticated Raspberry Pi LAN telemetry link."
+            ))
+
     @app.post("/api/v1/links/serial")
     async def connect_serial(request: SerialConnect):
         require_vehicle(request.vehicle_id)
+        check_serial_host(request.port)
         try:
             await links.start_serial(request)
             return links.snapshot(request.vehicle_id)
@@ -195,6 +224,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/v1/links/backup/serial")
     async def backup_serial(request: SerialConnect):
+        check_serial_host(request.port)
         return await create_backup_receiver(request)
 
     @app.post("/api/v1/links/backup/udp")
