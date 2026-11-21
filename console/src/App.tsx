@@ -107,7 +107,7 @@ export default function App() {
   const [browserAutoSelect, setBrowserAutoSelect] = useState(false);
   useEffect(() => () => { void browserSerialRef.current?.stop(); }, []);
   useEffect(() => {
-    if (browserSerialAircraft && selected && browserSerialAircraft !== selected) {
+    if (browserSerialAircraft && browserSerialAircraft !== selected) {
       void browserSerialRef.current?.stop();
       browserSerialRef.current = null;
       setBrowserSerialAircraft("");
@@ -257,16 +257,23 @@ export default function App() {
   const location = sample?.latitude != null && sample.longitude != null
     ? { latitude: sample.latitude, longitude: sample.longitude } : null;
   const waypoints = openedMission?.waypoints ?? editedRoute ?? survey?.waypoints ?? manual;
+  function aircraftStatus(vehicleId: string): string | undefined {
+    return browserSerialSelected && browserSerialAircraft === vehicleId
+      ? browserSerialSample?.status : readings[vehicleId]?.status;
+  }
   const fleetMatches = vehicles.filter(v => {
     const q = aircraftSearch.trim().toLowerCase();
     const match = !q || v.label.toLowerCase().includes(q) || v.vehicle_id.toLowerCase().includes(q);
-    const status = readings[v.vehicle_id]?.status;
+    const status = aircraftStatus(v.vehicle_id);
     return match && (aircraftFilter === "ALL" || (aircraftFilter === "LIVE" ? status === "LIVE" : status !== "LIVE"));
   });
   const displayedMissionList = missions.filter(m => m.vehicle_id === selected);
-  const liveCount = useMemo(
-    () => Object.values(readings).filter(t => t.status === "LIVE").length, [readings]
-  );
+  const liveCount = useMemo(() => {
+    const statuses = new Map(Object.entries(readings).map(([id, item]) => [id, item.status]));
+    if (browserSerialSelected && browserSerialAircraft)
+      statuses.set(browserSerialAircraft, browserSerialSample?.status || "OFFLINE");
+    return Array.from(statuses.values()).filter(value => value === "LIVE").length;
+  }, [readings, browserSerialSelected, browserSerialAircraft, browserSerialSample?.status]);
 
   function notify(text: string) { setNotice(text); setAlert(""); }
   function fail(error: unknown) {
@@ -632,14 +639,14 @@ export default function App() {
         <div className="aircraft-items">
           {vehicles.length === 0 && <p className="sidebar-empty">No aircraft registered. Use FLEET to add one.</p>}
           {fleetMatches.map(v => {
-            const item = readings[v.vehicle_id];
+            const status = aircraftStatus(v.vehicle_id);
             return <button key={v.vehicle_id} type="button"
               onClick={() => setSelected(v.vehicle_id)}
               className={"aircraft-item " + (selected === v.vehicle_id ? "current" : "")}>
               <div className="aircraft-icon">✈</div><div className="aircraft-info">
                 <strong>{v.label}</strong><span>{v.vehicle_id}</span>
-                <small className={item?.status === "LIVE" ? "working" : ""}>{linkLabel(item?.status)}</small>
-              </div><span className={"aircraft-dot " + (item?.status === "LIVE" ? "online" : "")}/>
+                <small className={status === "LIVE" ? "working" : ""}>{linkLabel(status)}</small>
+              </div><span className={"aircraft-dot " + (status === "LIVE" ? "online" : "")}/>
             </button>;
           })}
         </div>
