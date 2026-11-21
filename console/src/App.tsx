@@ -39,10 +39,9 @@ type DrawMode = "NONE" | "POLYGON" | "WAYPOINT";
 const EMPTY_POLYGON: MapPoint[] = [];
 const EMPTY_ROUTE: Waypoint[] = [];
 const EMPTY_TRACK: MapPoint[] = [];
-const sections: { label: Section; icon: IconName }[] = [
+const primarySections: { label: Section; icon: IconName }[] = [
   { label: "FLIGHT", icon: "flight" }, { label: "CONTROL", icon: "shield" }, { label: "PLAN", icon: "plan" },
-  { label: "FLEET", icon: "fleet" }, { label: "LINK", icon: "link" },
-  { label: "BENCH", icon: "activity" }, { label: "HISTORY", icon: "history" }, { label: "VIDEO", icon: "video" }
+  { label: "VIDEO", icon: "video" }
 ];
 
 function readPreference(key: string): string | null {
@@ -408,7 +407,10 @@ export default function App({ account, onInitialChecksComplete }: {
     setEditedRoute(null);
     setSelectedWaypoint(null);
   }
+  const [cameraExpanded, setCameraExpanded] = useState(false);
+
   function navigate(page: Section) {
+    setCameraExpanded(false);
     if (page !== "FLIGHT") stopFollowing();
     previewRevision.current += 1;
     setSelectedWaypoint(null);
@@ -749,13 +751,21 @@ export default function App({ account, onInitialChecksComplete }: {
       <aside className="rail">
         <div className="identity"><span className="vihanga-logo"><img src="/vihanga-mark.svg" alt=""/></span><b>VIHANGA</b></div>
         <nav aria-label="Workspaces">
-          {sections.map(item => <button key={item.label} type="button"
+          {primarySections.map(item => <button key={item.label} type="button"
             className={"rail-item " + (section === item.label ? "selected" : "")}
             onClick={() => navigate(item.label)} aria-current={section === item.label ? "page" : undefined}>
             <span className="rail-icon"><UiIcon name={item.icon} size={21}/></span><small>{item.label}</small>
           </button>)}
+          <select className="workspace-tools" aria-label="Station tools"
+            value={["FLEET", "LINK", "BENCH", "HISTORY"].includes(section) ? section : ""}
+            onChange={event => navigate(event.target.value as Section)}>
+            <option value="" disabled>Tools</option>
+            <option value="FLEET">Aircraft directory</option>
+            <option value="LINK">Link health</option>
+            <option value="BENCH">Bench</option>
+            <option value="HISTORY">Saved routes</option>
+          </select>
         </nav>
-        <div className="rail-foot">GCS</div>
       </aside>
       {fleetOpen && <aside className="fleetbar">
         <div className="fleetbar-head"><span>AIRCRAFT</span><strong>{vehicles.length}</strong></div>
@@ -789,7 +799,7 @@ export default function App({ account, onInitialChecksComplete }: {
       </aside>}
       <div className="main-area">
         <header className="toolbar">
-          <div className="toolbar-leading">
+          <div className="toolbar-leading" key={section}>
             <strong>{sectionTitles[section]}</strong>
             {active && <span className="toolbar-subtitle">{active.label}</span>}
           </div>
@@ -803,7 +813,7 @@ export default function App({ account, onInitialChecksComplete }: {
               aria-pressed={fleetOpen} onClick={() => setFleetOpen(v => !v)}>
               <UiIcon name="fleet" size={15}/> {fleetOpen ? "Hide aircraft" : "Aircraft"}
             </button>
-            <span className={"link-chip " + (current?.status === "LIVE" ? "ok" : "")}>
+            <span className={"link-chip " + (displaySample?.status === "LIVE" ? "ok" : "")}>
               <span className="chip-dot"/>{linkLabel(displaySample?.status)}
             </span>
             <span className="vehicle-chip">{active?.vehicle_id || "NO AIRCRAFT"}</span>
@@ -836,20 +846,22 @@ export default function App({ account, onInitialChecksComplete }: {
               fitLeftPadding={panelOpen && (section === "PLAN" || section === "HISTORY") ? 414 : 76}
               onMapClick={clicked} onVertexMove={moveVertex}/>
           </PanelLoader>
-          <div className="map-tools">
-            <button className={basemap === "satellite" ? "chosen" : ""} onClick={() => setBasemap("satellite")}>Satellite</button>
-            <button className={basemap === "streets" ? "chosen" : ""} onClick={() => setBasemap("streets")}>Streets</button>
-            <button className={basemap === "grid" ? "chosen" : ""} onClick={() => setBasemap("grid")}
-              title="Display geometry without online map tiles">Offline</button>
+          <div className="map-tools" role="group" aria-label="Map controls">
+            <select aria-label="Map layer" value={basemap}
+              onChange={event => setBasemap(event.target.value as Basemap)}>
+              <option value="satellite">Satellite</option>
+              <option value="streets">Streets</option>
+              <option value="grid">Offline grid</option>
+            </select>
             <button disabled={!location} title={!location ? "No fresh GPS fix" : "Center selected aircraft"}
               onClick={() => setCenterSignal(x => x + 1)}>Aircraft</button>
             {section === "FLIGHT" && <button type="button" className={followAircraft ? "chosen" : ""}
               aria-pressed={followAircraft} aria-label="Follow aircraft" disabled={!followAircraft && !location}
               title={!location ? "No fresh GPS fix" : "Keep the map centered on the aircraft"}
               onClick={() => setFollowedAircraftId(followAircraft ? "" : selected)}>Follow</button>}
-            <button disabled={waypoints.length === 0 && polygon.length === 0}
+            {(waypoints.length > 0 || polygon.length > 0) && <button type="button"
               title="Fit survey or route to map"
-              onClick={() => { stopFollowing(); setFitSignal(x => x + 1); }}>Fit route</button>
+              onClick={() => { stopFollowing(); setFitSignal(x => x + 1); }}>Fit route</button>}
           </div>
           {section === "PLAN" && <div className="operation-ribbon" role="toolbar" aria-label="Planning tools">
             <button className={section === "PLAN" && drawMode === "POLYGON" ? "active" : ""}
@@ -883,17 +895,12 @@ export default function App({ account, onInitialChecksComplete }: {
               <h2>Survey planner</h2>
               <span>{openedMission ? "SAVED DRAFT" : survey ? "PREVIEW READY" : "DRAFT"}</span>
             <button type="button" className="panel-close" onClick={() => setPanelOpen(false)} aria-label="Close panel" title="Close panel">×</button></div>
-            <div className="plan-intro">
-              <span>MISSION GEOMETRY</span>
-              <strong>{selected || "NO AIRCRAFT"}</strong>
-            </div>
             <div className="plan-tabs" aria-label="Coverage pattern">
               <button type="button" className={pattern === "PARALLEL" ? "active" : ""}
                 onClick={() => { setPattern("PARALLEL"); clearPreview(); }}>Parallel</button>
               <button type="button" className={pattern === "CIRCULAR" ? "active" : ""}
                 onClick={() => { setPattern("CIRCULAR"); clearPreview(); }}>Circular</button>
             </div>
-            <div className="panel-section-label">AREA & WAYPOINTS</div>
             <div className="planner-quick-actions" role="group" aria-label="Planner editing tools">
               <button type="button" onClick={undoPlannerPoint}
                 disabled={!!openedMission || !(drawMode === "POLYGON" ? polygon.length :
@@ -1024,7 +1031,7 @@ export default function App({ account, onInitialChecksComplete }: {
                 <option value="ETHERNET">Ethernet</option><option value="OTHER">Other</option></select></label>
               <button className="major" type="submit" disabled={busy}>Register aircraft</button>
             </form>
-            <p className="panel-footnote">Aircraft remain offline until their actual telemetry connection is established.</p>
+
           </section>}
           {panelOpen && section === "LINK" && <section id="operator-panel" className="float-panel utility-panel">
             <div className="panel-title"><h2>Connection diagnostics</h2><span>Receive-only</span><button type="button" className="panel-close" onClick={() => setPanelOpen(false)} aria-label="Close panel" title="Close panel">×</button></div>
@@ -1047,7 +1054,7 @@ export default function App({ account, onInitialChecksComplete }: {
             <p className="panel-footnote">Cloud uses authenticated private WSS; UDP accepts SITL frames only on localhost. Neither transport forwards commands to an FC.</p>
           </section>}
           {panelOpen && section === "HISTORY" && <section id="operator-panel" className="float-panel utility-panel history-panel">
-            <div className="panel-title"><h2>Saved route history</h2><span>{displayedMissionList.length} drafts</span><button type="button" className="panel-close" onClick={() => setPanelOpen(false)} aria-label="Close panel" title="Close panel">×</button></div>
+            <div className="panel-title"><h2>Saved routes</h2><span>{displayedMissionList.length} drafts</span><button type="button" className="panel-close" onClick={() => setPanelOpen(false)} aria-label="Close panel" title="Close panel">×</button></div>
             <div className="history-list">
               {displayedMissionList.length === 0 && <p className="panel-footnote">No saved drafts for this aircraft.</p>}
               {displayedMissionList.map(m => <button key={m.mission_id} onClick={() => {
@@ -1059,11 +1066,11 @@ export default function App({ account, onInitialChecksComplete }: {
                 <small>{m.revision_sha256.slice(0, 16)} · DRAFT</small>
               </button>)}
             </div>
-            <p className="panel-footnote">This is a real record of stored mission drafts, not a log of flights that did not occur.</p>
           </section>}
-          {panelOpen && section === "VIDEO" && <section id="operator-panel" className="float-panel utility-panel video-panel">
-            <div className="panel-title"><h2><UiIcon name="video" size={20}/> Camera workstation</h2>
-              <span>PRIVATE WEBRTC / {selected || "NO AIRCRAFT"}</span><button type="button" className="panel-close" onClick={() => setPanelOpen(false)} aria-label="Close panel" title="Close panel">×</button></div>
+          {panelOpen && section === "VIDEO" && <section id="operator-panel" className="float-panel utility-panel video-panel" data-expanded={cameraExpanded && Boolean(cameraUrl)}>
+            <div className="panel-title"><h2><UiIcon name="video" size={20}/> Camera</h2>
+              {cameraUrl && <button type="button" aria-pressed={cameraExpanded}
+                onClick={() => setCameraExpanded(open => !open)}>{cameraExpanded ? "Restore size" : "Expand camera"}</button>}<button type="button" className="panel-close" onClick={() => setPanelOpen(false)} aria-label="Close panel" title="Close panel">×</button></div>
             <form onSubmit={setVideo} className="form-stack">
               <label>Private stream page (HTTPS)<input value={cameraInput} type="url" required
                 placeholder="https://aircraft.ts.net/cam"
@@ -1075,7 +1082,6 @@ export default function App({ account, onInitialChecksComplete }: {
                 referrerPolicy="no-referrer" allow="autoplay; fullscreen" allowFullScreen/>
               <a href={cameraUrl} target="_blank" rel="noopener noreferrer">Open full camera page ↗</a>
             </div>}
-            {!cameraUrl && <p className="panel-footnote">Enter an actual authenticated MediaMTX/WebRTC camera page. No stock video is displayed.</p>}
           </section>}
           {section === "LINK" && <div className={"ops-signal-strip" + (diagnosticsOpen ? " drawer-open" : "")}
             aria-label="Aircraft link summary">

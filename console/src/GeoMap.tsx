@@ -89,7 +89,7 @@ export function buildGeometry(polygon: MapPoint[], route: RoutePoint[], position
   return { type: "FeatureCollection" as const, features };
 }
 
-const WAYPOINT_LAYERS = ["waypoint-selected", "waypoint-numbers", "waypoint-points"];
+const WAYPOINT_LAYERS = ["waypoint-selected", "waypoint-overview", "waypoint-numbers", "waypoint-points"];
 
 function installWaypointBadges(map: MapLibreMap, count: number) {
   // Bake local labels into the style so both dots and numbers share the line's
@@ -189,9 +189,17 @@ export default function GeoMap({
           "circle-radius": ["case", ["boolean", ["get", "selected"], false], 15, 3],
           "circle-color": "#ffca72", "circle-stroke-color": "#131d28", "circle-stroke-width": 1.5
         } });
-      map.addLayer({ id: "waypoint-numbers", type: "symbol", source: "vihanga-geometry",
+      map.addLayer({ id: "waypoint-numbers", minzoom: 16, type: "symbol", source: "vihanga-geometry",
         filter: ["all", ["==", ["get", "kind"], "waypoint"], ["<=", ["get", "index"], 200],
           ["==", ["get", "selected"], false]],
+        layout: {
+          "icon-image": ["concat", "wp-", ["to-string", ["get", "index"]]],
+          "icon-padding": 3, "symbol-sort-key": ["get", "pin_priority"]
+        }
+      });
+      map.addLayer({ id: "waypoint-overview", type: "symbol", source: "vihanga-geometry", maxzoom: 16,
+        filter: ["all", ["==", ["get", "kind"], "waypoint"], ["<", ["get", "pin_priority"], 2],
+          ["<=", ["get", "index"], 200], ["==", ["get", "selected"], false]],
         layout: {
           "icon-image": ["concat", "wp-", ["to-string", ["get", "index"]]],
           "icon-padding": 3, "symbol-sort-key": ["get", "pin_priority"]

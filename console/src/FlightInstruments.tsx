@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Telemetry } from "./api";
 import FlightTrend, { useFlightTrend } from "./FlightTrend";
 import FlightEvents, { useFlightEvents } from "./FlightEvents";
-import { currentTelemetry, finite } from "./flightHistory";
+import { currentTelemetry, finite, type FlightMetric } from "./flightHistory";
 
 const ticks = [0, .125, .25, .375, .5, .625, .75, .875, 1];
 const compassTicks = [-60, -45, -30, -15, 0, 15, 30, 45, 60];
@@ -11,13 +11,13 @@ const bearing = (degrees: number) => (degrees % 360 + 360) % 360;
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 const text = (n: number | null, digits = 1) => n == null ? "—" : n.toFixed(digits);
 
-function Gauge({ label, value, unit, min, max, detail }: {
-  label: string; value: number | null; unit: string; min: number; max: number; detail?: string;
+function Gauge({ label, value, unit, min, max, detail, onTrend }: {
+  label: string; value: number | null; unit: string; min: number; max: number; detail?: string; onTrend: () => void;
 }) {
   const fraction = value == null ? null : clamp((value - min) / (max - min), 0, 1);
   const zero = min < 0 ? -min / (max - min) : 0;
   return <section className="station-gauge" aria-label={label}>
-    <h3>{label}</h3>
+    <h3><button className="metric-link" type="button" onClick={onTrend} aria-label={label + " trend"}>{label}</button></h3>
     <svg viewBox="0 0 120 66" aria-hidden="true">
       <path className="gauge-track" d="M 14 59 A 46 46 0 0 1 106 59" pathLength="100"/>
       {fraction != null && <path className="gauge-fill" d="M 14 59 A 46 46 0 0 1 106 59" pathLength="100"
@@ -84,6 +84,11 @@ function InstrumentDisplay({ telemetry, aircraftId, eventLog }: {
   telemetry?: Telemetry; aircraftId: string; eventLog: ReturnType<typeof useFlightEvents>;
 }) {
   const [display, setDisplay] = useState<"instruments" | "trends" | "events">("instruments");
+  const [metricKey, setMetricKey] = useState<FlightMetric>();
+  function showTrend(key?: FlightMetric) {
+    setMetricKey(key);
+    setDisplay("trends");
+  }
   const data = currentTelemetry(telemetry);
   const trend = useFlightTrend(data);
   const groundspeed = finite(data?.groundspeed_mps);
@@ -101,7 +106,7 @@ function InstrumentDisplay({ telemetry, aircraftId, eventLog }: {
     <div className="instrument-titlebar">
       <div role="group" aria-label="Flight display">
         <button type="button" aria-pressed={display === "instruments"} onClick={() => setDisplay("instruments")}>Instruments</button>
-        <button type="button" aria-pressed={display === "trends"} onClick={() => setDisplay("trends")}>Telemetry trends</button>
+        <button type="button" aria-pressed={display === "trends"} onClick={() => showTrend()}>Telemetry trends</button>
         <button type="button" aria-pressed={display === "events"} onClick={() => setDisplay("events")}>Events</button>
       </div>
       <span className={heartbeat ? "readout-good" : "readout-bad"} title="Flight-controller heartbeat">
@@ -109,18 +114,18 @@ function InstrumentDisplay({ telemetry, aircraftId, eventLog }: {
       </span>
     </div>
     {display === "events" ? <FlightEvents aircraftId={aircraftId} {...eventLog}/> :
-      display === "trends" ? <FlightTrend aircraftId={aircraftId} {...trend}/> :
+      display === "trends" ? <FlightTrend metricKey={metricKey} aircraftId={aircraftId} {...trend}/> :
       <div className="station-gauge-grid">
-        <Gauge label="Ground speed" value={groundspeed} min={0} max={Math.max(30, Math.ceil((groundspeed ?? 0) / 10) * 10)} unit="m/s"
+        <Gauge onTrend={() => showTrend("groundspeed_mps")} label="Ground speed" value={groundspeed} min={0} max={Math.max(30, Math.ceil((groundspeed ?? 0) / 10) * 10)} unit="m/s"
           detail={airspeed == null ? "Air —" : "Air " + text(airspeed)}/>
-        <Gauge label="Vertical speed" value={climb} min={-climbScale} max={climbScale} unit="m/s"/>
+        <Gauge onTrend={() => showTrend("climb_mps")} label="Vertical speed" value={climb} min={-climbScale} max={climbScale} unit="m/s"/>
         <Attitude roll={roll} pitch={pitch}/>
         <Heading yaw={yaw}/>
         <div className="station-flight-readouts">
-          <section><h3>Relative altitude</h3><strong>{text(altitude)} <small>m</small></strong></section>
+          <section><h3><button className="metric-link" type="button" onClick={() => showTrend("relative_alt_m")}>Relative altitude</button></h3><strong>{text(altitude)} <small>m</small></strong></section>
           <section><h3>GNSS</h3><strong>{data?.gps_fix_type == null ? "—" : "FIX " + data.gps_fix_type}</strong>
             <small>{data?.satellites == null ? "—" : data.satellites + " sat"}</small></section>
-          <section><h3>Battery</h3><strong>{text(voltage, 2)} <small>V</small></strong>
+          <section><h3><button className="metric-link" type="button" onClick={() => showTrend("voltage_v")}>Battery</button></h3><strong>{text(voltage, 2)} <small>V</small></strong>
             <small>{battery == null ? "—" : battery + "%"}</small></section>
         </div>
       </div>}
