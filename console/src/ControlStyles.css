@@ -70,8 +70,8 @@
 .control-action.caution .control-action-heading small{color:#e9c088;border-color:#896b4e}
 .control-action.readonly .control-action-heading small{color:#95cfb9;border-color:#507f71}
 .control-action-state{font-size:10px;font-weight:650;color:#aebfc9}
-.control-action.locked{opacity:.75;cursor:not-allowed}
-.control-action.locked:hover{background:#283842}
+.control-action.inactive{opacity:.72;cursor:not-allowed}
+.control-action.inactive:hover{background:#283842}
 .control-action.enabled{background:#28473f;border-color:#559c82;color:#f1fbf6;cursor:pointer}
 .control-action.enabled .control-action-state{color:#93e7c4}
 .control-action.enabled:hover{background:#356356;border-color:#7dc7a7}

@@ -34,7 +34,7 @@ export default function ControlPanel({
   aircraftId, catalog, telemetry, readback, busy,
   onClose, onBenchQuery, onRefreshReadback
 }: Props) {
-  const [group, setGroup] = useState<OperatorGroup>("FLIGHT");
+  const [group, setGroup] = useState<OperatorGroup>("DIAGNOSTICS");
   const [mode, setMode] = useState("LOITER");
   const [parameter, setParameter] = useState("GPS_TYPE");
   const [search, setSearch] = useState("");
@@ -74,12 +74,6 @@ export default function ControlPanel({
       </div>
     </div>
 
-    <div className="control-permission" role="status">
-      <strong>Flight command path locked</strong>
-      <span>Control authority and physical command transport are not yet installed.
-        These controls cannot arm, change modes or move the aircraft.</span>
-    </div>
-
     <nav className="control-groups" aria-label="Aircraft operation categories">
       {groups.map(item => <button type="button" key={item.key}
         className={group === item.key ? "active" : ""} aria-pressed={group === item.key}
@@ -92,7 +86,7 @@ export default function ControlPanel({
         <select id="operator-mode-choice" value={mode} onChange={e => setMode(e.target.value)}>
           {arducopterModes.map(value => <option value={value} key={value}>{value}</option>)}
         </select>
-        <small>Requested mode: {mode}. Mode changes are unavailable until command authority is validated.</small>
+        <small>Selected mode: {mode}. Applying a mode requires an authenticated aircraft command channel.</small>
       </div>}
 
       {group === "PARAMETERS" && <div className="control-parameter-search">
@@ -107,18 +101,18 @@ export default function ControlPanel({
           disabled={busy || !action.enabled || (action.code === "PARAM_READ" && !/^[A-Z][A-Z0-9_]{0,15}$/.test(parameter))}
           className={"control-action " +
             (action.risk === "CRITICAL" ? "critical " : action.risk === "HIGH" ? "caution " : "readonly ") +
-            (action.enabled ? "enabled" : "locked")}
+            (action.enabled ? "enabled" : "inactive")}
           title={action.enabled ? "Non-actuating read request via USB serial" :
-            "Unavailable: " + action.reason.replaceAll("_", " ").toLowerCase()}
+            "Requires integration: " + action.reason.replaceAll("_", " ").toLowerCase()}
           onClick={() => action.bench_query &&
             onBenchQuery(action.bench_query, action.code === "PARAM_READ" ? parameter : undefined)}>
           <span className="control-action-heading">
             <strong>{action.label}</strong>
             <small>{action.risk === "READ" ? "READ" :
-              action.risk === "CRITICAL" ? "FLIGHT" : "RESTRICTED"}</small>
+              action.risk === "CRITICAL" ? "FLIGHT" : "CONFIG"}</small>
           </span>
           <span className="control-action-state">
-            {action.enabled ? "Request data" : "Locked"}
+            {action.enabled ? "Request data" : action.bench_query ? "USB bench only" : "Command link required"}
           </span>
         </button>)}
       </div>
@@ -143,8 +137,8 @@ export default function ControlPanel({
       </div>}
     </div>
     <footer className="control-footnote">
-      Local bench reads require an explicit server opt-in and a connected USB serial receiver.
-      A completed request write does not mean the FC responded. No command or parameter write is enabled.
+      Diagnostic requests use local USB with an explicitly disarmed FC. Flight-changing
+      actions require a separately verified command channel; no command success is implied.
     </footer>
   </section>;
 }

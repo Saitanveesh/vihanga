@@ -35,11 +35,12 @@ describe("flight operation controls", () => {
       telemetry={undefined} readback={null} busy={false}
       onClose={vi.fn()} onBenchQuery={onBenchQuery}
       onRefreshReadback={vi.fn()}/>);
+    fireEvent.click(screen.getByRole("button", {name:"Flight"}));
     expect((screen.getByRole("button",{name:/Arm motors/}) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button",{name:/Land/}) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button",{name:/Arm motors/}));
     expect(onBenchQuery).not.toHaveBeenCalled();
-    expect(screen.getByText("Flight command path locked")).toBeTruthy();
+    expect(screen.queryByText("Flight command path locked")).toBeNull();
   });
 
   it("only a proven local bench read enables an information request", () => {
