@@ -3,6 +3,10 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import ConnectionSettings, { validateConnection, type ConnectionRequest } from "./ConnectionSettings";
 import type { Telemetry } from "./api";
 
+vi.mock("./BrowserSerial", () => ({
+  getBrowserSerial: () => ({ requestPort: vi.fn(), getPorts: vi.fn().mockResolvedValue([]) })
+}));
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
@@ -14,6 +18,7 @@ const callbacks = () => ({
   onActivate: vi.fn().mockResolvedValue(undefined),
   onRemoveBackup: vi.fn().mockResolvedValue(undefined),
   onDisconnect: vi.fn().mockResolvedValue(undefined),
+  onClearError: vi.fn(),
   onClose: vi.fn()
 });
 
@@ -38,14 +43,14 @@ const defaultRequest: ConnectionRequest = {
 };
 
 describe("ConnectionSettings", () => {
-  it("provides six real transport options and readable local UDP fields", async () => {
+  it("keeps common transports visible and advanced UDP available", async () => {
     const c = panel();
     expect(screen.getByRole("dialog", {name: "Connection settings"})).toBeTruthy();
-    for (const label of ["Server USB", "This PC USB", "UDP", "TCP", "Direct Wi-Fi",
-       "Vihanga Cloud", "Private relay"]) {
+    for (const label of ["This PC USB", "Direct Wi-Fi", "Private relay"]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
-    fireEvent.click(screen.getByRole("button", {name: /UDP Local listener/}));
+    fireEvent.click(screen.getByText("Advanced connections"));
+    fireEvent.click(screen.getByRole("button", {name: "UDP"}));
     const ip = screen.getByDisplayValue("127.0.0.1") as HTMLInputElement;
     expect(ip.readOnly).toBe(true);
     expect(screen.getByDisplayValue("14550")).toBeTruthy();
@@ -63,8 +68,10 @@ describe("ConnectionSettings", () => {
       active_source: "PRIMARY"
     } as Telemetry;
     const c = panel({telemetry: connected, initialRole: "BACKUP"});
-    expect(screen.getByText("DIRECT LAN WSS")).toBeTruthy();
-    expect((screen.getByRole("button", {name: "Connect backup"}) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Direct Wi-Fi")).toBeTruthy();
+    expect(screen.queryByRole("button", {name: "Connect backup"})).toBeNull();
+    expect(screen.queryByText("CONNECTION DETAILS")).toBeNull();
+    expect(screen.queryByText("Reconnect authorized USB radio")).toBeNull();
     fireEvent.click(screen.getByRole("button", {name: "Use backup"}));
     expect(c.onActivate).toHaveBeenCalledWith("BACKUP");
     fireEvent.click(screen.getByRole("button", {name: "Remove backup"}));
@@ -76,8 +83,35 @@ describe("ConnectionSettings", () => {
   it("does not configure standby without a primary or simulate link failover", () => {
     const c = panel({initialRole:"BACKUP"});
     expect(screen.getByText(/Connect a primary receiver before configuring/)).toBeTruthy();
-    expect((screen.getByRole("button", {name: "Connect backup"}) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", {name: "Connect backup"})).toBeNull();
     expect(c.onConnect).not.toHaveBeenCalled();
+  });
+
+  it("allows one USB connection action only when backup is free", () => {
+    const primary = {
+      primary_transport:"VIHANGA_CLOUD_V2", primary_status:"LIVE",
+      backup_transport:null, backup_status:"OFFLINE", active_source:"PRIMARY"
+    } as Telemetry;
+    const c = panel({telemetry: primary, initialRole:"BACKUP"});
+    fireEvent.click(screen.getByRole("button", {name:"This PC USB"}));
+    expect(screen.queryByText("Reconnect authorized USB radio")).toBeNull();
+    fireEvent.click(screen.getByRole("button", {name:"Connect USB"}));
+    expect(c.onConnectBrowserSerial).toHaveBeenCalledWith(57600, 1);
+
+    cleanup();
+    const configured = {...primary,
+      backup_transport:"BROWSER_SERIAL_READ_ONLY", backup_status:"LIVE"} as Telemetry;
+    const second = panel({telemetry: configured, initialRole:"BACKUP"});
+    expect(screen.getByText("USB on this PC")).toBeTruthy();
+    expect(screen.queryByRole("button", {name:"Connect USB"})).toBeNull();
+    expect(screen.getByRole("button", {name:"Remove backup"})).toBeTruthy();
+    expect(second.onConnectBrowserSerial).not.toHaveBeenCalled();
+  });
+
+  it("clears stale errors when changing connection role or transport", () => {
+    const c = panel({error:"Old receiver failure"});
+    fireEvent.click(screen.getByRole("button", {name:"Backup"}));
+    expect(c.onClearError).toHaveBeenCalled();
   });
 
   it("validates LAN private address, token, ports, and serial device", () => {
