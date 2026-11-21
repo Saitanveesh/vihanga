@@ -164,6 +164,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const jsonPost = <T,>(path: string, value: unknown): Promise<T> => request<T>(path, {
   method: "POST", body: JSON.stringify(value)
 });
+export interface HostSerialPorts {
+  host_platform: string;
+  ports: string[];
+  scope: "API_HOST_ONLY";
+}
+export const getHostSerialPorts = () => request<HostSerialPorts>("serial/ports");
 export const getHealth = () => request<Health>("health");
 export const getVehicles = () => request<Vehicle[]>("vehicles");
 export const getMissions = () => request<Mission[]>("missions");
