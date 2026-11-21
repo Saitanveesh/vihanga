@@ -512,7 +512,7 @@ export default function App() {
   return (
     <div className="workspace">
       <aside className="rail">
-        <div className="identity"><span>V</span><b>VIHANGA</b></div>
+        <div className="identity"><span className="vihanga-logo"><img src="/vihanga-mark.svg" alt=""/></span><b>VIHANGA</b></div>
         <nav aria-label="Workspaces">
           {sections.map(item => <button key={item.label} type="button"
             className={"rail-item " + (section === item.label ? "selected" : "")}
@@ -567,7 +567,7 @@ export default function App() {
             <button type="button" className="toolbar-button fleet-toggle"
               aria-label={fleetOpen ? "Hide aircraft list" : "Show aircraft list"}
               aria-pressed={fleetOpen} onClick={() => setFleetOpen(v => !v)}>
-              <UiIcon name="fleet" size={15}/> {fleetOpen ? "Hide fleet" : "Fleet"}
+              <UiIcon name="fleet" size={15}/> {fleetOpen ? "Hide aircraft" : "Aircraft"}
             </button>
             <span className={"link-chip " + (sample?.status === "LIVE" ? "ok" : "")}>
               <span className="chip-dot"/>{linkLabel(sample?.status)}
