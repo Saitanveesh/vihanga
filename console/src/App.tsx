@@ -3,6 +3,7 @@ import GeoMap, { type MapPoint } from "./GeoMap";
 import FlightInstruments from "./FlightInstruments";
 import OperationsPanel from "./OperationsPanel";
 import ControlPanel from "./ControlPanel";
+import NetworkWatch from "./NetworkWatch";
 import ConnectionSettings, { type ConnectionRequest, type ConnectionRole } from "./ConnectionSettings";
 import UiIcon, { type IconName } from "./UiIcon";
 import {
@@ -558,7 +559,7 @@ export default function App() {
               onClick={() => { navigate("PLAN"); setDrawMode("WAYPOINT"); }} title="Add manual waypoints"><UiIcon name="map" size={15}/> <span>Waypoints</span></button>
             <button onClick={() => navigate("HISTORY")} title="View stored mission drafts"><UiIcon name="history" size={15}/> <span>Routes</span></button>
             <span className="ribbon-divider"/>
-            <span className="ribbon-hint" title="Routes are drafts; aircraft actuation is not available"><UiIcon name="lock" size={13}/> Planning only</span>
+            <span className="ribbon-hint" title="Save and export planned routes; aircraft mission upload is not configured"><UiIcon name="map" size={13}/> Route editor</span>
           </div>}
           {!panelOpen && <div className="panel-launcher">
             <button type="button" onClick={() => setPanelOpen(true)}
@@ -797,6 +798,7 @@ export default function App() {
               {diagnosticsOpen ? "Close panel" : "Link & sensors"}
             </button>
           </div>
+          <NetworkWatch aircraftId={selected} telemetry={sample} viewerConnected={liveTransportConnected}/>
           {diagnosticsOpen && <OperationsPanel
             aircraftId={selected} telemetry={sample} busy={busy}
             onClose={() => setDiagnosticsOpen(false)}
