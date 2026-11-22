@@ -20,6 +20,8 @@ export default function SessionRecorder({ scope, aircraft, visible, latest, rece
   const [error, report] = useState("");
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const queuedSample = useRef<{ run: string; at: number } | null>(null);
+  const writingRun = useRef<string | null>(null);
   const lastWrite = useRef<Promise<void>>(Promise.resolve());
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -34,11 +36,21 @@ export default function SessionRecorder({ scope, aircraft, visible, latest, rece
 
   useEffect(() => {
     if (!active || !latest || latest.at < active.started) return;
+    if (queuedSample.current?.run === active.id && latest.at <= queuedSample.current.at) return;
+    if (writingRun.current !== active.id) return;
     const sample = { ...latest, receiver, run: active.id };
-    lastWrite.current = appendSample(sample).then(() => {
+    queuedSample.current = { run: active.id, at: sample.at };
+    lastWrite.current = lastWrite.current.then(async () => {
+      if (writingRun.current !== sample.run) return;
+      await appendSample(sample);
       if (alive.current) setCount(n => n + 1);
     }).catch(() => {
-      if (alive.current) { setActive(null); report("Recording stopped. Storage write failed. Earlier samples are saved."); }
+      if (writingRun.current !== sample.run) return;
+      writingRun.current = null;
+      if (alive.current) {
+        setActive(null);
+        report("Recording stopped. Storage write failed. Earlier samples are saved.");
+      }
     });
   }, [active, latest, receiver]);
 
@@ -94,8 +106,12 @@ export default function SessionRecorder({ scope, aircraft, visible, latest, rece
   async function start() {
     setStarting(true); report("");
     try {
+      await lastWrite.current;
       const run = await beginRun(scope);
-      if (alive.current) { select(""); setCount(0); setActive(run); }
+      if (alive.current) {
+        writingRun.current = run.id;
+        select(""); setCount(0); setActive(run);
+      }
     } catch { if (alive.current) report("Could not start a recording in this browser."); }
     finally { if (alive.current) setStarting(false); }
   }
