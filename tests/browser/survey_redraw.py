@@ -9,12 +9,21 @@ from PIL import Image
 from playwright.sync_api import expect, sync_playwright
 
 
+pending_saves = []
+
+
 def api(route):
     path = route.request.url.split("/api/v1/")[-1]
     if path == "health":
         data = {"service": "vihanga-standalone", "status": "ok"}
     elif path == "station/session":
         data = {"required": False, "username": None, "role": None}
+    elif path == "vehicles":
+        data = [{"vehicle_id": "BENCH-1", "label": "Bench", "autopilot": "ARDUPILOT", "interface": "UART",
+                 "created_at": "2026-01-01T00:00:00Z", "link_state": "OFFLINE", "control_authorized": False}]
+    elif path == "missions" and route.request.method == "POST":
+        pending_saves.append(route)
+        return
     elif path.endswith("/preview"):
         polygon = route.request.post_data_json["polygon"]
         data = {"polygon": polygon, "waypoints": [dict(p, altitude_m=35) for p in polygon],
@@ -51,8 +60,20 @@ def check(page):
                     raise AssertionError(f"Boundary vertex accepted but invisible in survey {cycle+1}")
         page.get_by_role("button", name="Generate coverage route").click()
         expect(page.get_by_role("button", name="Clear waypoints")).to_be_enabled()
+        if cycle == 1:
+            page.get_by_label("Mission name").fill("First survey draft")
+            with page.expect_request(lambda req: req.method == "POST" and req.url.endswith("/missions")):
+                page.get_by_role("button", name="Save mission draft").click()
         page.get_by_role("button", name="Reset", exact=True).click()
         expect(count).to_have_text("0")
+        if cycle == 1:
+            page.mouse.click(px, py)
+            expect(count).to_have_text("1")
+            request = pending_saves.pop()
+            request.fulfill(json={**request.request.post_data_json, "mission_id":"test", "revision_sha256":"abc123",
+                                  "created_at":"2026-01-01T00:00:00Z", "distance_m":10, "status":"DRAFT_ONLY"})
+            page.mouse.click(px - 80, py + 80)
+            expect(count).to_have_text("2")
 
 
 with ThreadingHTTPServer(("127.0.0.1", 0), partial(SimpleHTTPRequestHandler, directory="console/dist")) as server:

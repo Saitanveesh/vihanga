@@ -589,7 +589,12 @@ export default function App({ account, onInitialChecksComplete }: {
     if (route.length < 2) return fail(new Error("Add two waypoints or preview a survey polygon"));
     setBusy(true);
     try {
+      const revision = previewRevision.current;
       const draft = await saveMission({ vehicle_id: selected, title: missionTitle.trim(), waypoints: route });
+      if (revision !== previewRevision.current) {
+        await refresh();
+        return;
+      }
       setOpenedMission(draft);
       setSelectedWaypoint(null);
       setSurvey(null); setEditedRoute(null); setPolygon([]); setManual([]); setMissionTitle("");
