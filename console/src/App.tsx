@@ -2,7 +2,7 @@ import { lazy, useCallback, useEffect, useMemo, useRef, useState, type FormEvent
 import type { MapPoint } from "./GeoMap";
 import PanelLoader from "./PanelLoader";
 import FlightInstruments from "./FlightInstruments";
-import { currentTelemetry, finite } from "./flightHistory";
+import { currentTelemetry, finite, type FlightPoint } from "./flightHistory";
 import useDisplayTelemetry from "./useDisplayTelemetry";
 import NetworkWatch from "./NetworkWatch";
 import { useStationBoot, type BootData } from "./StationBoot";
@@ -373,6 +373,7 @@ export default function App({ account, onInitialChecksComplete }: {
   }, [selected, controlsVisible, sample?.transport, sample?.active_source]);
   const cameraUrl = cameraPages[selected] ?? "";
   const current = currentTelemetry(displaySample);
+  const [reviewPoint, setReviewPoint] = useState<FlightPoint | null>(null);
   const latitude = finite(current?.latitude);
   const longitude = finite(current?.longitude);
   const location = useMemo(() => latitude != null && longitude != null &&
@@ -849,7 +850,8 @@ export default function App({ account, onInitialChecksComplete }: {
               track={mapVisible ? observedTrack : EMPTY_TRACK} position={mapVisible ? location : null} drawing={section === "PLAN" && drawMode !== "NONE"}
               editingBoundary={section === "PLAN" && drawMode === "POLYGON"}
               basemap={basemap} centerSignal={centerSignal} fitSignal={fitSignal}
-              follow={section === "FLIGHT" && followAircraft} onFollowInterrupted={stopFollowing}
+              review={section === "FLIGHT" ? reviewPoint : null}
+              follow={section === "FLIGHT" && !reviewPoint && followAircraft} onFollowInterrupted={stopFollowing}
               selectedWaypoint={selectedWaypoint} onWaypointSelect={setSelectedWaypoint}
               fitLeftPadding={panelOpen && (section === "PLAN" || section === "HISTORY") ? 414 : 76}
               onMapClick={clicked} onVertexMove={moveVertex}/>
@@ -1132,7 +1134,7 @@ export default function App({ account, onInitialChecksComplete }: {
           {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
         </div>
         <div hidden={section !== "FLIGHT"} className="station-instrument-area">
-          <FlightInstruments telemetry={displaySample} aircraftId={selected}/>
+          <FlightInstruments onReview={setReviewPoint} telemetry={displaySample} aircraftId={selected}/>
         </div>
         <footer className="station-statusbar" aria-label="Station status">
           <span>MODE <strong>{current?.heartbeat_fresh ? current.mode ?? "—" : "—"}</strong></span>
