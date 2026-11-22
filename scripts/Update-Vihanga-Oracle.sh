@@ -7,6 +7,8 @@ url=http://127.0.0.1:8010
 commit=$1
 baseline=c588bf3e165a0bdf1670011b6a9b86c8ad082105
 backend_path=backend/vihanga/app.py
+bench_path=backend/vihanga/bench.py
+bench_baseline=5436d750ff26407a4f02db5f6bcf3b0e7417e9f5
 
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Specify the complete release commit." >&2; exit 2; }
 [[ "$(systemctl show "$service" -p WorkingDirectory --value)" == "$repo" ]] ||
@@ -26,6 +28,8 @@ index_next=
 api_next=
 index_changed=0
 api_changed=0
+bench_next=
+bench_changed=0
 confirmed=0
 
 finish() {
@@ -36,16 +40,21 @@ finish() {
       install -m 644 "$build/previous.html" "$index_next"
       mv -f "$index_next" "$live/index.html"
     fi
+    if (( bench_changed )); then
+      install -m 644 "$build/previous-bench.py" "$bench_next"
+      mv -f "$bench_next" "$repo/$bench_path"
+    fi
     if (( api_changed )); then
       install -m 644 "$build/previous.py" "$api_next"
       mv -f "$api_next" "$repo/$backend_path"
-      sudo systemctl restart "$service" || true
     fi
-    if (( index_changed || api_changed )); then
+    if (( api_changed || bench_changed )); then sudo systemctl restart "$service" || true; fi
+    if (( index_changed || api_changed || bench_changed )); then
       echo "Verification failed. The previous release was restored." >&2
     fi
   fi
   [[ -z "$index_next" ]] || rm -f -- "$index_next"
+  [[ -z "$bench_next" ]] || rm -f -- "$bench_next"
   [[ -z "$api_next" ]] || rm -f -- "$api_next"
   rm -rf -- "$build"
   exit "$result"
@@ -54,14 +63,20 @@ trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-git -C "$repo" archive "$commit" console "$backend_path" | tar -x -C "$build"
+git -C "$repo" archive "$commit" console "$backend_path" "$bench_path" | tar -x -C "$build"
 git -C "$repo" show "$baseline:$backend_path" > "$build/baseline.py"
 if ! cmp -s "$repo/$backend_path" "$build/$backend_path" &&
    ! cmp -s "$repo/$backend_path" "$build/baseline.py"; then
   echo "The running API source has diverged. Its source and console were left in place." >&2
   exit 2
 fi
-python3 -m py_compile "$build/$backend_path"
+git -C "$repo" show "$bench_baseline:$bench_path" > "$build/baseline-bench.py"
+if ! cmp -s "$repo/$bench_path" "$build/$bench_path" &&
+   ! cmp -s "$repo/$bench_path" "$build/baseline-bench.py"; then
+  echo "The running bench recorder has diverged; update stopped." >&2
+  exit 2
+fi
+python3 -m py_compile "$build/$backend_path" "$build/$bench_path"
 npm --prefix "$build/console" ci --cache "$build/npm-cache" --no-audit --no-fund
 npm --prefix "$build/console" run build
 
@@ -78,8 +93,16 @@ if ! cmp -s "$repo/$backend_path" "$build/$backend_path"; then
   install -m 644 "$build/$backend_path" "$api_next"
   api_changed=1
   mv -f "$api_next" "$repo/$backend_path"
-  sudo systemctl restart "$service"
 fi
+if ! cmp -s "$repo/$bench_path" "$build/$bench_path"; then
+  sudo -v
+  cp -p "$repo/$bench_path" "$build/previous-bench.py"
+  bench_next=$(mktemp "$repo/$bench_path.next.XXXXXX")
+  install -m 644 "$build/$bench_path" "$bench_next"
+  bench_changed=1
+  mv -f "$bench_next" "$repo/$bench_path"
+fi
+if (( api_changed || bench_changed )); then sudo systemctl restart "$service"; fi
 
 if ! cmp -s "$live/index.html" "$dist/index.html"; then
   index_next=$(mktemp "$live/.index.next.XXXXXX")

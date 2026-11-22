@@ -236,6 +236,11 @@ interface ReceiverStats {
   p99_ms: number | null;
 }
 export interface BenchReport {
+  ledger?: {
+    format: string; status: "VERIFIED" | "MISMATCH" | "UNSEALED"; clock: string;
+    head?: string; sample_count?: number;
+    continuity: { index: number; elapsed_ms: number; state: string; detail: string }[];
+  };
   capture: BenchCapture;
   samples: BenchSample[];
   summary: Record<BenchRole, ReceiverStats> & {
