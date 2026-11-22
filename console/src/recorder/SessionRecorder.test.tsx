@@ -32,7 +32,8 @@ it("writes new samples while the recorder is hidden and reopens the saved sessio
   await screen.findByRole("button", { name: "Stop & review" });
   view.rerender(<SessionRecorder {...props} visible={false} latest={sample}/>);
   await waitFor(() => expect(appendSample).toHaveBeenCalledWith(sample));
-  view.rerender(<SessionRecorder {...props} visible latest={sample}/>);
+  view.rerender(<SessionRecorder {...props} visible latest={sample} receiver="BACKUP/USB"/>);
+  expect(appendSample).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button", { name: "Stop & review" }));
   await screen.findByRole("slider", { name: "Recording time" });
   expect(props.onReview).toHaveBeenCalledWith(sample);

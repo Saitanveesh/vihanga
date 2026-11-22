@@ -268,6 +268,9 @@ export default function GeoMap({
       }
     };
     map.on("dragstart", () => followInterrupt.current?.());
+    window.addEventListener("blur", release);
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
     map.on("mouseup", release);
     map.on("mouseout", release);
     map.on("click", event => {
@@ -308,6 +311,9 @@ export default function GeoMap({
     return () => {
       observer?.disconnect();
       window.removeEventListener("resize", resize);
+      window.removeEventListener("blur", release);
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
       if (firstFrame !== undefined) window.cancelAnimationFrame?.(firstFrame);
       window.clearTimeout(secondFrame);
       map.remove();

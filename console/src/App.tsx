@@ -132,7 +132,7 @@ export default function App({ account, onInitialChecksComplete }: {
   const [bearing, setBearing] = useState(0);
   const [altitude, setAltitude] = useState(35);
   const [missionTitle, setMissionTitle] = useState("");
-  const [openedMission, setOpenedMission] = useState<Mission | null>(null);
+  const [savedMission, setOpenedMission] = useState<Mission | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [operatorCatalog, setOperatorCatalog] = useState<OperatorCatalog | null>(null);
@@ -379,6 +379,7 @@ export default function App({ account, onInitialChecksComplete }: {
   const longitude = finite(current?.longitude);
   const location = useMemo(() => latitude != null && longitude != null &&
     Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { latitude, longitude } : null, [latitude, longitude]);
+  const openedMission = savedMission?.vehicle_id === selected ? savedMission : null;
   const waypoints = openedMission?.waypoints ?? editedRoute ?? survey?.waypoints ?? manual;
   function aircraftStatus(vehicleId: string): string | undefined {
     return browserSerialSelected && browserSerialAircraft === vehicleId
@@ -811,7 +812,13 @@ export default function App({ account, onInitialChecksComplete }: {
           {fleetMatches.map(v => {
             const status = aircraftStatus(v.vehicle_id);
             return <button key={v.vehicle_id} type="button"
-              onClick={() => setSelected(v.vehicle_id)}
+              onClick={() => {
+                if (v.vehicle_id !== selected) {
+                  previewRevision.current += 1;
+                  setSelectedWaypoint(null);
+                  setSelected(v.vehicle_id);
+                }
+              }}
               className={"aircraft-item " + (selected === v.vehicle_id ? "current" : "")}>
               <div className="aircraft-icon">✈</div><div className="aircraft-info">
                 <strong>{v.label}</strong><span>{v.vehicle_id}</span>
@@ -899,7 +906,7 @@ export default function App({ account, onInitialChecksComplete }: {
             <button className={section === "PLAN" && drawMode === "WAYPOINT" ? "active" : ""}
               aria-pressed={section === "PLAN" && drawMode === "WAYPOINT"}
               onClick={() => startDrawing("WAYPOINT")} title="Add manual waypoints"><UiIcon name="map" size={15}/> <span>Waypoints</span></button>
-            {drawMode !== "NONE" && <button type="button" onClick={() => setDrawMode("NONE")}>Finish</button>}
+            {drawMode !== "NONE" && <button type="button" onClick={() => { previewRevision.current += 1; setDrawMode("NONE"); }}>Finish</button>}
             <button onClick={() => navigate("HISTORY")} title="View stored mission drafts"><UiIcon name="history" size={15}/> <span>Routes</span></button>
           </div>}
           {!panelOpen && section !== "FLIGHT" && <div className="panel-launcher">
@@ -1022,7 +1029,7 @@ export default function App({ account, onInitialChecksComplete }: {
             <form className="save-form" onSubmit={e => void saveDraft(e)}>
               <label>Mission name<input required minLength={3} maxLength={100}
                 placeholder="Boundary survey · Site 01" value={missionTitle}
-                onChange={e => setMissionTitle(e.target.value)}/></label>
+                onChange={e => { previewRevision.current += 1; setMissionTitle(e.target.value); }}/></label>
               <button type="submit" className="major" disabled={busy || waypoints.length < 2 || !selected || !!openedMission}>Save mission draft</button>
             </form>
             <div className="plan-handoff">
