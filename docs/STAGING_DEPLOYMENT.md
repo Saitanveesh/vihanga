@@ -68,3 +68,20 @@ separate deliverables.
 
 The previous hardware-verified Pi/Oracle relay must remain untouched until
 this independent staging stack passes physical acceptance.
+
+### Broker credential expiry and rotation
+
+The existing JSON array format remains supported. To require expiration, wrap
+the aircraft array as `{"version": 2, "aircraft": [...]}` and add integer
+`device_expires_at` and `viewer_expires_at` fields to each aircraft entry. Both
+are UTC Unix seconds. Expired credentials are rejected on connect. Established
+sessions are closed at expiration and their slot or queue is released.
+
+To rotate or revoke a credential in staging, generate an independent random
+replacement, update only its stored SHA-256 digest and expiry, restart the broker,
+and update authorized clients through the existing secret-distribution channel.
+Restart disconnects all broker sessions. Setting one role's expiry to a past
+timestamp disables that role without changing the other role's configured token.
+Keep a protected copy of the previous configuration for rollback only when its
+credentials are still trusted. This version uses restart-based configuration
+changes and has no operator login endpoint or overlapping-key rotation window.

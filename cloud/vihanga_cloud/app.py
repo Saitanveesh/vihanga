@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 import hmac
 import json
+import logging
 import os
 import re
 import time
@@ -19,6 +20,8 @@ from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pymavlink.dialects.v20 import ardupilotmega as mavlink
+
+logger = logging.getLogger(__name__)
 
 MAX_VIEWERS_PER_AIRCRAFT = 16
 VIEWER_SEND_TIMEOUT_SECONDS = 2.0
@@ -45,6 +48,12 @@ class AircraftIdentity:
     organization: str
     device_token_hash: str
     viewer_token_hash: str
+    device_expires_at: int | None = None
+    viewer_expires_at: int | None = None
+
+    def remaining_seconds(self, viewer: bool) -> float | None:
+        expires_at = self.viewer_expires_at if viewer else self.device_expires_at
+        return None if expires_at is None else max(0.0, expires_at - time.time())
 
     def __post_init__(self):
         if not VEHICLE_ID.fullmatch(self.vehicle_id):
@@ -53,6 +62,9 @@ class AircraftIdentity:
             raise ValueError("MAVLink SYSID must be in 1..254")
         if not self.organization or len(self.organization) > 80:
             raise ValueError("Invalid organization")
+        for expiry in (self.device_expires_at, self.viewer_expires_at):
+            if expiry is not None and (type(expiry) is not int or not 0 < expiry <= 253402300799):
+                raise ValueError("Credential expiry must be UTC Unix seconds")
         for hashed in (self.device_token_hash, self.viewer_token_hash):
             if not re.fullmatch(r"[a-f0-9]{64}", hashed):
                 raise ValueError("Only SHA256 token digests may be configured")
@@ -134,7 +146,9 @@ class Broker:
 
     def authorize(self, vehicle_id: str, token: str, viewer: bool = False) -> Slot | None:
         slot = self.slots.get(vehicle_id)
-        if slot is None or not isinstance(token, str) or len(token) < 32:
+        if slot is None or not isinstance(token, str) or not 32 <= len(token) <= 512:
+            return None
+        if slot.identity.remaining_seconds(viewer) == 0:
             return None
         expected = slot.identity.viewer_token_hash if viewer else slot.identity.device_token_hash
         return slot if hmac.compare_digest(digest(token), expected) else None
@@ -146,14 +160,27 @@ def from_environment() -> Broker:
         raise RuntimeError("VIHANGA_CLOUD_AIRCRAFT_JSON is required; refusing open relay")
     try:
         data = json.loads(raw)
+        versioned = isinstance(data, dict)
+        if versioned:
+            if set(data) != {"version", "aircraft"} or type(data["version"]) is not int or data["version"] != 2:
+                raise ValueError("Unsupported aircraft configuration version")
+            data = data["aircraft"]
         if not isinstance(data, list):
-            raise ValueError("Expected a JSON list")
+            raise ValueError("Expected an aircraft list")
+        if versioned and any(
+            not isinstance(item, dict) or any(type(item.get(key)) is not int
+                for key in ("device_expires_at", "viewer_expires_at"))
+            for item in data
+        ):
+            raise ValueError("Version 2 requires per-role expiration")
         identities = [AircraftIdentity(
             vehicle_id=item["vehicle_id"],
             system_id=int(item["system_id"]),
             organization=item["organization"],
             device_token_hash=item["device_token_sha256"],
-            viewer_token_hash=item["viewer_token_sha256"]
+            viewer_token_hash=item["viewer_token_sha256"],
+            device_expires_at=item["device_expires_at"] if versioned else None,
+            viewer_expires_at=item["viewer_expires_at"] if versioned else None
         ) for item in data]
         return Broker(identities)
     except (ValueError, KeyError, TypeError) as exc:
@@ -196,7 +223,17 @@ def create_app(broker: Broker | None = None) -> FastAPI:
         try:
             await ws.accept()
             while True:
-                message = await ws.receive()
+                remaining = slot.identity.remaining_seconds(viewer=False)
+                try:
+                    if remaining == 0:
+                        raise asyncio.TimeoutError
+                    message = await asyncio.wait_for(ws.receive(), timeout=remaining)
+                    if slot.identity.remaining_seconds(viewer=False) == 0:
+                        raise asyncio.TimeoutError
+                except asyncio.TimeoutError:
+                    logger.info("broker_session_expired role=device aircraft=%s", vehicle_id)
+                    await asyncio.wait_for(ws.close(code=4401), VIEWER_SEND_TIMEOUT_SECONDS)
+                    break
                 if message.get("type") == "websocket.disconnect":
                     break
                 raw = message.get("bytes")
@@ -210,7 +247,7 @@ def create_app(broker: Broker | None = None) -> FastAPI:
                         queue.get_nowait()
                         slot.viewer_frames_dropped += 1
                     queue.put_nowait((epoch, now, packet))
-        except (WebSocketDisconnect, RuntimeError, OSError):
+        except (WebSocketDisconnect, RuntimeError, OSError, asyncio.TimeoutError):
             pass
         finally:
             async with slot.lock:
@@ -238,11 +275,17 @@ def create_app(broker: Broker | None = None) -> FastAPI:
         try:
             await ws.accept()
             while True:
+                remaining = slot.identity.remaining_seconds(viewer=True)
+                if remaining == 0:
+                    logger.info("broker_session_expired role=viewer aircraft=%s", vehicle_id)
+                    close_code = 4401
+                    break
                 wait_for_disconnect = asyncio.create_task(ws.receive())
                 wait_for_frame = asyncio.create_task(queue.get())
                 try:
                     done, _ = await asyncio.wait(
-                        {wait_for_disconnect, wait_for_frame}, timeout=1.0,
+                        {wait_for_disconnect, wait_for_frame},
+                        timeout=1.0 if remaining is None else min(1.0, remaining),
                         return_when=asyncio.FIRST_COMPLETED)
                 finally:
                     for task in (wait_for_disconnect, wait_for_frame):
@@ -257,11 +300,23 @@ def create_app(broker: Broker | None = None) -> FastAPI:
                     # A viewer NEVER sends commands to device sockets.
                 if wait_for_frame in done:
                     epoch, time_received, packet = wait_for_frame.result()
+                    remaining = slot.identity.remaining_seconds(viewer=True)
+                    if remaining == 0:
+                        slot.viewer_frames_dropped += 1
+                        logger.info("broker_session_expired role=viewer aircraft=%s", vehicle_id)
+                        close_code = 4401
+                        break
                     if (slot.device_connected and slot.epoch == epoch and
                             time.monotonic() - time_received <= 1.5):
                         try:
-                            await asyncio.wait_for(ws.send_bytes(packet), VIEWER_SEND_TIMEOUT_SECONDS)
+                            await asyncio.wait_for(ws.send_bytes(packet),
+                                VIEWER_SEND_TIMEOUT_SECONDS if remaining is None else
+                                min(VIEWER_SEND_TIMEOUT_SECONDS, remaining))
                         except asyncio.TimeoutError:
+                            if slot.identity.remaining_seconds(viewer=True) == 0:
+                                logger.info("broker_session_expired role=viewer aircraft=%s", vehicle_id)
+                                close_code = 4401
+                                break
                             slot.viewer_send_timeouts += 1
                             close_code = 1013
                             break
