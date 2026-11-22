@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Telemetry } from "./api";
 import FlightTrend, { useFlightTrend } from "./FlightTrend";
+import SessionRecorder from "./recorder/SessionRecorder";
 import QuickView from "./flight-deck/QuickView";
 import FlightEvents, { useFlightEvents } from "./FlightEvents";
 import { currentTelemetry, finite, type FlightMetric, type FlightPoint } from "./flightHistory";
@@ -74,17 +75,17 @@ function Heading({ yaw }: { yaw: number | null }) {
   </section>;
 }
 
-export default function FlightInstruments({ telemetry, aircraftId = "", onReview }: {
-  telemetry?: Telemetry; aircraftId?: string; onReview?: (point: FlightPoint | null) => void;
+export default function FlightInstruments({ telemetry, aircraftId = "", operator = "", onReview }: {
+  telemetry?: Telemetry; aircraftId?: string; operator?: string; onReview?: (point: FlightPoint | null) => void;
 }) {
   const eventLog = useFlightEvents(aircraftId, telemetry);
-  return <InstrumentDisplay onReview={onReview} key={aircraftId} aircraftId={aircraftId} telemetry={telemetry} eventLog={eventLog}/>;
+  return <InstrumentDisplay scope={JSON.stringify([operator, aircraftId])} onReview={onReview} key={JSON.stringify([operator, aircraftId])} aircraftId={aircraftId} telemetry={telemetry} eventLog={eventLog}/>;
 }
 
-function InstrumentDisplay({ telemetry, aircraftId, eventLog, onReview }: {
-  telemetry?: Telemetry; aircraftId: string; onReview?: (point: FlightPoint | null) => void; eventLog: ReturnType<typeof useFlightEvents>;
+function InstrumentDisplay({ telemetry, aircraftId, eventLog, onReview, scope }: {
+  telemetry?: Telemetry; aircraftId: string; scope: string; onReview?: (point: FlightPoint | null) => void; eventLog: ReturnType<typeof useFlightEvents>;
 }) {
-  const [display, setDisplay] = useState<"instruments" | "trends" | "events">("instruments");
+  const [display, setDisplay] = useState<"instruments" | "trends" | "events" | "recordings">("instruments");
   const [layout, setLayout] = useState(() => {
     try { return localStorage.getItem("vihanga.flight.layout") === "quick" ? "quick" : "gauges"; }
     catch { return "gauges"; }
@@ -113,6 +114,7 @@ function InstrumentDisplay({ telemetry, aircraftId, eventLog, onReview }: {
         <button type="button" aria-pressed={display === "instruments"} onClick={() => setDisplay("instruments")}>Instruments</button>
         <button type="button" aria-pressed={display === "trends"} onClick={() => showTrend()}>Telemetry trends</button>
         <button type="button" aria-pressed={display === "events"} onClick={() => setDisplay("events")}>Events</button>
+        <button type="button" aria-pressed={display === "recordings"} onClick={() => setDisplay("recordings")}>Recorder</button>
       </div>
       {display === "instruments" && <select className="instrument-layout" aria-label="Instrument layout" value={layout}
         onChange={event => {
@@ -126,7 +128,9 @@ function InstrumentDisplay({ telemetry, aircraftId, eventLog, onReview }: {
         <i aria-hidden="true"/> {heartbeat ? "FC HEARTBEAT" : telemetry?.status === "STALE" ? "TELEMETRY STALE" : "NO FC HEARTBEAT"}
       </span>
     </div>
-    {display === "events" ? <FlightEvents aircraftId={aircraftId} {...eventLog}/> :
+    <SessionRecorder scope={scope} aircraft={aircraftId} visible={display === "recordings"}
+      latest={trend.points.at(-1)} receiver={trend.source} onReview={onReview}/>
+    {display === "recordings" ? null : display === "events" ? <FlightEvents aircraftId={aircraftId} {...eventLog}/> :
       display === "trends" ? <FlightTrend key={trend.source} onReview={onReview} metricKey={metricKey} aircraftId={aircraftId} {...trend}/> :
       layout === "quick" ? <QuickView now={trend.now} points={trend.points} onTrend={showTrend}
         values={{ groundspeed_mps: groundspeed, relative_alt_m: altitude, climb_mps: climb, voltage_v: voltage }}/> :

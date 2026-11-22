@@ -1134,7 +1134,7 @@ export default function App({ account, onInitialChecksComplete }: {
           {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
         </div>
         <div hidden={section !== "FLIGHT"} className="station-instrument-area">
-          <FlightInstruments onReview={setReviewPoint} telemetry={displaySample} aircraftId={selected}/>
+          <FlightInstruments operator={account?.name} onReview={setReviewPoint} telemetry={displaySample} aircraftId={selected}/>
         </div>
         <footer className="station-statusbar" aria-label="Station status">
           <span>MODE <strong>{current?.heartbeat_fresh ? current.mode ?? "—" : "—"}</strong></span>
