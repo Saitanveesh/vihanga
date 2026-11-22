@@ -211,7 +211,11 @@ export default function App({ account, onInitialChecksComplete }: {
       const deadline = window.setTimeout(() => controller.abort(), 2800);
       try {
         const next = await getFleetTelemetry(controller.signal);
-        if (mounted) applyFleet(next);
+        if (mounted) {
+          const readings = Object.fromEntries(Object.entries(next ?? {}).filter(([id, reading]) =>
+            reading?.vehicle_id === id && typeof reading.status === "string"));
+          applyFleet(readings);
+        }
       } catch {
         if (mounted) applyFleet({});
       } finally {

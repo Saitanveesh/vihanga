@@ -104,7 +104,8 @@ it.each(["Clear boundary", "Reset"])("accepts a second survey immediately after 
 });
 
 it("removes a saved route from the map while another aircraft is selected", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ required: false, username: null, role: null })));
+  vi.stubGlobal("fetch", vi.fn(async input => Response.json(String(input).endsWith("/fleet/telemetry")
+    ? { "TEST-ALPHA": null } : { required: false, username: null, role: null })));
   vi.mocked(getHealth).mockResolvedValue({
     service: "vihanga-standalone", status: "ok", deployment: "LOCAL_STATION",
     physical_flight_control: false, live_vehicle_stream: false
@@ -125,7 +126,7 @@ it("removes a saved route from the map while another aircraft is selected", asyn
     fireEvent.click(await screen.findByRole("button", { name: /Survey Alpha/ }));
     await screen.findByRole("button", { name: "Map test target (2 points)" });
     fireEvent.click(screen.getByRole("button", { name: "Show aircraft list" }));
-    fireEvent.click(screen.getByRole("button", { name: /Bravo.*TEST-BRAVO/ }));
+    fireEvent.click(screen.getByText("Bravo", { exact: true }));
     expect(screen.getByRole("button", { name: "Map test target (0 points)" })).toBeTruthy();
   } finally {
     localStorage.removeItem("vihanga.station.aircraft");
