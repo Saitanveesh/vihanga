@@ -43,7 +43,7 @@ async function read<T>(store: string, index: string, key: string): Promise<T[]> 
   });
 }
 
-export async function beginRun(scope: string) {
+export async function beginRun(scope: string): Promise<Run> {
   const run = { id: crypto.randomUUID(), scope, started: Date.now() };
   await write("runs", run);
   return run;
