@@ -168,7 +168,7 @@ describe("geographic map visual geometry regression", () => {
     expect(stats.data?.features.find(f => f.properties.selected)?.properties.index).toBe(2);
     props.onMapClick.mockClear();
     stats.pressVertex?.({ point: { x: 40, y: 40 }, features: [{ geometry: { type: "Point" }, properties: { kind: "vertex", index: 1 } }], preventDefault() {} });
-    stats.release?.();
+    window.dispatchEvent(new Event("pointercancel"));
     click(point);
     expect(props.onMapClick).not.toHaveBeenCalled();
     click(point);

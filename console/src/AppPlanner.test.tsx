@@ -102,3 +102,32 @@ it.each(["Clear boundary", "Reset"])("accepts a second survey immediately after 
   }
   expect((screen.getByRole("button", { name: "Generate coverage route" }) as HTMLButtonElement).disabled).toBe(false);
 });
+
+it("removes a saved route from the map while another aircraft is selected", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ required: false, username: null, role: null })));
+  vi.mocked(getHealth).mockResolvedValue({
+    service: "vihanga-standalone", status: "ok", deployment: "LOCAL_STATION",
+    physical_flight_control: false, live_vehicle_stream: false
+  });
+  vi.mocked(getVehicles).mockResolvedValue(["Alpha", "Bravo"].map(label => ({
+    label, vehicle_id: "TEST-" + label.toUpperCase(), autopilot: "ARDUPILOT", interface: "UART",
+    created_at: "", link_state: "OFFLINE", control_authorized: false
+  })));
+  vi.mocked(getMissions).mockResolvedValue([{
+    mission_id: "draft", title: "Survey Alpha", vehicle_id: "TEST-ALPHA", status: "DRAFT_ONLY",
+    waypoints: [{latitude: 12, longitude: 77, altitude_m: 35}, {latitude: 12.1, longitude: 77, altitude_m: 35}],
+    distance_m: 100, revision_sha256: "abc", created_at: ""
+  }]);
+  localStorage.setItem("vihanga.station.aircraft", "TEST-ALPHA");
+  try {
+    render(<StationAccess/>);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Station tools" }), {target: {value: "HISTORY"}});
+    fireEvent.click(await screen.findByRole("button", { name: /Survey Alpha/ }));
+    await screen.findByRole("button", { name: "Map test target (2 points)" });
+    fireEvent.click(screen.getByRole("button", { name: "Show aircraft list" }));
+    fireEvent.click(screen.getByRole("button", { name: /Bravo.*TEST-BRAVO/ }));
+    expect(screen.getByRole("button", { name: "Map test target (0 points)" })).toBeTruthy();
+  } finally {
+    localStorage.removeItem("vihanga.station.aircraft");
+  }
+});
