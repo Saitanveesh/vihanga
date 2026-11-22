@@ -52,7 +52,7 @@ export default function OperationsPanel({
 
   return <aside className="ops-drawer" aria-label="Aircraft link and sensor diagnostics">
     <header className="ops-drawer-head">
-      <div><span className="ops-eyebrow">AIRCRAFT DIAGNOSTICS</span>
+      <div>
         <h2>Links &amp; sensors</h2>
         <small>{aircraftId || "No aircraft selected"}</small></div>
       <button type="button" aria-label="Close diagnostics" onClick={onClose}>×</button>

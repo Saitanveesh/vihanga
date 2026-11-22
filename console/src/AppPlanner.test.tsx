@@ -1,0 +1,134 @@
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import StationAccess from "./StationAccess";
+import { getHealth, getMissions, getVehicles, previewCircularSurvey, type SurveyPreview } from "./api";
+import type { MapPoint } from "./GeoMap";
+
+vi.mock("./api", async importOriginal => ({
+  ...await importOriginal<typeof import("./api")>(),
+  getHealth: vi.fn(), getMissions: vi.fn(), getVehicles: vi.fn(), previewCircularSurvey: vi.fn()
+}));
+vi.mock("./NetworkWatch", () => ({ default: () => null }));
+vi.mock("./GeoMap", () => ({
+  default: ({ polygon, route, onMapClick }: {
+    polygon: MapPoint[]; route: MapPoint[]; onMapClick: (point: MapPoint) => void
+  }) => <button data-vertices={polygon.length} onClick={() => onMapClick({ latitude: 12 + polygon.length / 1000, longitude: 77 })}>
+    Map test target ({route.length} points)
+  </button>
+}));
+
+afterEach(() => {
+  cleanup();
+  vi.resetAllMocks();
+  vi.unstubAllGlobals();
+});
+
+it("discards a circular result when the user clears its boundary while it is loading", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () =>
+    Response.json({ required: false, username: null, role: null })
+  ));
+  let resolveHealth!: (value: Awaited<ReturnType<typeof getHealth>>) => void;
+  vi.mocked(getHealth).mockImplementation(() => new Promise(resolve => { resolveHealth = resolve; }));
+  vi.mocked(getVehicles).mockResolvedValue([]);
+  vi.mocked(getMissions).mockResolvedValue([]);
+  let resolvePreview!: (value: SurveyPreview) => void;
+  vi.mocked(previewCircularSurvey).mockImplementation(() => new Promise(resolve => { resolvePreview = resolve; }));
+
+  render(<StationAccess/>);
+  const splash = screen.getByRole("img", { name: "VIHANGA" });
+  await act(async () => {});
+  expect(screen.getByRole("img", { name: "VIHANGA" })).toBe(splash);
+  expect(screen.queryByRole("navigation", { name: "Workspaces" })).toBeNull();
+  await act(async () => resolveHealth({
+    service: "vihanga-standalone", status: "ok", deployment: "LOCAL_STATION",
+    physical_flight_control: false, live_vehicle_stream: false
+  }));
+  fireEvent.click(await screen.findByRole("button", { name: /^plan$/i }));
+  expect(screen.queryByRole("img", { name: "VIHANGA" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Circular" }));
+  const survey = screen.getByRole("button", { name: "Survey" });
+  fireEvent.click(survey);
+  fireEvent.click(survey);
+  expect(survey.getAttribute("aria-pressed")).toBe("true");
+  const map = await screen.findByRole("button", { name: "Map test target (0 points)" });
+  for (let index = 0; index < 3; index++) fireEvent.click(map);
+  fireEvent.click(screen.getByRole("button", { name: "Generate coverage route" }));
+  expect(previewCircularSurvey).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "Clear boundary" }));
+  await act(async () => resolvePreview({
+    pattern: "CIRCULAR", waypoints: [{ latitude: 12, longitude: 77, altitude_m: 40 }],
+    polygon: [], lane_count: 1, area_m2: 5, route_distance_m: 1, estimated_duration_s: 1,
+    requires_route_review: true, status: "PREVIEW_ONLY"
+  }));
+  expect(screen.getByRole("button", { name: "Map test target (0 points)" })).toBeTruthy();
+  expect(screen.queryByText("PREVIEW READY")).toBeNull();
+  const waypoints = screen.getByRole("button", { name: "Waypoints" });
+  fireEvent.click(waypoints);
+  fireEvent.click(waypoints);
+  fireEvent.click(map);
+  fireEvent.click(map);
+  expect(screen.getByRole("button", { name: "Map test target (2 points)" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+  fireEvent.click(map);
+  expect(screen.getByRole("button", { name: "Map test target (2 points)" })).toBeTruthy();
+});
+
+it.each(["Clear boundary", "Reset"])("accepts a second survey immediately after %s", async clearAction => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ required: false, username: null, role: null })));
+  vi.mocked(getHealth).mockResolvedValue({
+    service: "vihanga-standalone", status: "ok", deployment: "LOCAL_STATION",
+    physical_flight_control: false, live_vehicle_stream: false
+  });
+  vi.mocked(getVehicles).mockResolvedValue([]);
+  vi.mocked(getMissions).mockResolvedValue([]);
+  vi.mocked(previewCircularSurvey).mockResolvedValue({
+    pattern: "CIRCULAR", waypoints: [{ latitude: 12, longitude: 77, altitude_m: 40 }],
+    polygon: [], lane_count: 1, area_m2: 5, route_distance_m: 1, estimated_duration_s: 1,
+    requires_route_review: true, status: "PREVIEW_ONLY"
+  });
+  render(<StationAccess/>);
+  fireEvent.click(await screen.findByRole("button", { name: /^plan$/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Circular" }));
+  fireEvent.click(screen.getByRole("button", { name: "Survey" }));
+  const map = await screen.findByRole("button", { name: /Map test target/ });
+  for (let i = 0; i < 3; i++) fireEvent.click(map);
+  fireEvent.click(screen.getByRole("button", { name: "Generate coverage route" }));
+  await screen.findByRole("button", { name: "Map test target (1 points)" });
+  fireEvent.click(screen.getByRole("button", { name: clearAction }));
+  expect(map.getAttribute("data-vertices")).toBe("0");
+  for (let i = 1; i <= 3; i++) {
+    fireEvent.click(map);
+    expect(map.getAttribute("data-vertices")).toBe(String(i));
+  }
+  expect((screen.getByRole("button", { name: "Generate coverage route" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it("removes a saved route from the map while another aircraft is selected", async () => {
+  vi.stubGlobal("fetch", vi.fn(async input => Response.json(String(input).endsWith("/fleet/telemetry")
+    ? { "TEST-ALPHA": null } : { required: false, username: null, role: null })));
+  vi.mocked(getHealth).mockResolvedValue({
+    service: "vihanga-standalone", status: "ok", deployment: "LOCAL_STATION",
+    physical_flight_control: false, live_vehicle_stream: false
+  });
+  vi.mocked(getVehicles).mockResolvedValue(["Alpha", "Bravo"].map(label => ({
+    label, vehicle_id: "TEST-" + label.toUpperCase(), autopilot: "ARDUPILOT", interface: "UART",
+    created_at: "", link_state: "OFFLINE", control_authorized: false
+  })));
+  vi.mocked(getMissions).mockResolvedValue([{
+    mission_id: "draft", title: "Survey Alpha", vehicle_id: "TEST-ALPHA", status: "DRAFT_ONLY",
+    waypoints: [{latitude: 12, longitude: 77, altitude_m: 35}, {latitude: 12.1, longitude: 77, altitude_m: 35}],
+    distance_m: 100, revision_sha256: "abc", created_at: ""
+  }]);
+  localStorage.setItem("vihanga.station.aircraft", "TEST-ALPHA");
+  try {
+    render(<StationAccess/>);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Station tools" }), {target: {value: "HISTORY"}});
+    fireEvent.click(await screen.findByRole("button", { name: /Survey Alpha/ }));
+    await screen.findByRole("button", { name: "Map test target (2 points)" });
+    fireEvent.click(screen.getByRole("button", { name: "Show aircraft list" }));
+    fireEvent.click(screen.getByText("Bravo", { exact: true }));
+    expect(screen.getByRole("button", { name: "Map test target (0 points)" })).toBeTruthy();
+  } finally {
+    localStorage.removeItem("vihanga.station.aircraft");
+  }
+});

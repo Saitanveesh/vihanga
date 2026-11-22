@@ -1,175 +1,175 @@
 /* VIHANGA / Obsidian — operator-oriented high-contrast night palette.
    Loaded last: the previous light connection dialog must not defeat theme. */
 :root {
-  --bg:#070c12;--surface:#111922;--surface2:#19242e;
-  --divider:#263a49;--text:#e6f2fa;--muted:#9eb6c5;
-  --mission:#f1ae4a;--live:#51ddbb;
-  --c-bg:#070c12;--c-rail:#080f16;--c-side:#101923;
-  --c-surface:#141f2a;--c-panel:#111c26;
-  --c-border:#324e5d;--c-border-soft:#233a48;
-  --c-text:#e6f2fa;--c-muted:#a9bfcd;
-  --c-accent:#62c9e7;--c-accent-deep:#146581;
-  --c-live:#51ddbb;--c-route:#f1ae4a;
+  --bg:#0b0b0b;--surface:#181818;--surface2:#222222;
+  --divider:#373737;--text:#f0f0f0;--muted:#b2b2b2;
+  --mission:#f1ae4a;--live:#bdbdbd;
+  --c-bg:#0b0b0b;--c-rail:#0e0e0e;--c-side:#181818;
+  --c-surface:#1d1d1d;--c-panel:#1a1a1a;
+  --c-border:#494949;--c-border-soft:#363636;
+  --c-text:#f0f0f0;--c-muted:#bbbbbb;
+  --c-accent:#b5b5b5;--c-accent-deep:#565656;
+  --c-live:#bdbdbd;--c-route:#f1ae4a;
   --ops-red:#f48d80;--ops-yellow:#eabb69;
 }
-body,.workspace,.main-area{background:#070c12;color:#e8f4fa}
-.rail {background:#080f16;border-right:1px solid #274456}
-.rail-item.selected {background:#103344;color:#9ce5fa;
-  box-shadow:inset 0 0 0 1px #2788a8}
-.rail-item.selected::before{background:#54cce9}
-.rail-item:hover:not(.selected){background:#172734;color:#ecfaff}
-.fleetbar,.fleetbar-head,.fleetbar-foot{background:#101923;border-color:#294658}
-.aircraft-item {background:#172531;border-color:#30566b}
-.aircraft-item.current {background:#163d4b;border-color:#58c9e0;
-  box-shadow:inset 4px 0 0 #57cbe8}
-.toolbar {background:#0f1c27;border-bottom:1px solid #356078}
-.toolbar-leading strong,.product-label{color:#daf4ff}
+body,.workspace,.main-area{background:#0b0b0b;color:#f2f2f2}
+.rail {background:#0e0e0e;border-right:1px solid #3f3f3f}
+.rail-item.selected {background:#2d2d2d;color:#d7d7d7;
+  box-shadow:inset 0 0 0 1px #767676}
+.rail-item.selected::before{background:#b5b5b5}
+.rail-item:hover:not(.selected){background:#252525;color:#f7f7f7}
+.fleetbar,.fleetbar-head,.fleetbar-foot{background:#181818;border-color:#414141}
+.aircraft-item {background:#232323;border-color:#4f4f4f}
+.aircraft-item.current {background:#363636;border-color:#b3b3b3;
+  box-shadow:inset 4px 0 0 #b4b4b4}
+.toolbar {background:#1a1a1a;border-bottom:1px solid #595959}
+.toolbar-leading strong,.product-label{color:#efefef}
 .toolbar-button,.toolbar .toolbar-button{
-  background:#1a3546;border-color:#3f7895;color:#dff2fc
+  background:#303030;border-color:#6e6e6e;color:#efefef
 }
-.toolbar-button:hover:not(:disabled),.toolbar .toolbar-button:hover:not(:disabled){background:#26516a}
+.toolbar-button:hover:not(:disabled),.toolbar .toolbar-button:hover:not(:disabled){background:#4a4a4a}
 .toolbar-button.accent,.toolbar .toolbar-button.accent {
-  background:#127697;border-color:#269dc2;color:#fff;
+  background:#636363;border-color:#868686;color:#fff;
 }
-.toolbar-button.accent:hover:not(:disabled){background:#168daf}
-.link-chip.ok {background:#113b31;border:1px solid #299a7a;color:#8ff5d4}
+.toolbar-button.accent:hover:not(:disabled){background:#767676}
+.link-chip.ok {background:#313131;border:1px solid #808080;color:#dddddd}
 .map-tools,.operation-ribbon,.panel-launcher button{
-  background:#101c28f5;border-color:#2b667f;color:#def3fc
+  background:#1a1a1af5;border-color:#5b5b5b;color:#efefef
 }
 .map-tools button.chosen,.operation-ribbon button.active{
-  background:#0d5875!important;color:#f1fbff!important;border-color:#369cbd!important
+  background:#4a4a4a!important;color:#f9f9f9!important;border-color:#898989!important
 }
 .float-panel,.ops-drawer,.control-panel{
-  background:#101c26f8;border:1px solid #355467;color:#e6f3fc;
+  background:#1a1a1af8;border:1px solid #4f4f4f;color:#f1f1f1;
   box-shadow:0 20px 42px #000b
 }
 .panel-title,.control-head,.ops-drawer-head{
-  background:#162b3a;border-bottom:1px solid #38647a;color:#e9f7fc
+  background:#282828;border-bottom:1px solid #5c5c5c;color:#f4f4f4
 }
-.panel-title h2,.ops-drawer-head h2,.control-head h2{color:#f3fbff}
-.panel-section-label,.plan-intro span{color:#91c6da}
+.panel-title h2,.ops-drawer-head h2,.control-head h2{color:#fafafa}
+.panel-section-label,.plan-intro span{color:#bcbcbc}
 .plan-panel input,.plan-panel select,.control-panel input,.control-panel select {
-  background:#0c1923;color:#eefaff;border-color:#496d81
+  background:#171717;color:#f8f8f8;border-color:#676767
 }
 .plan-panel .major,.plan-panel .save-form .major{
-  background:#0d7190;border:1px solid #279dbd;color:#f7ffff
+  background:#5e5e5e;border:1px solid #868686;color:#fdfdfd
 }
-.plan-panel .major:hover:not(:disabled){background:#1689a8}
-.plan-panel .route-row{background:#122532}
-.plan-panel .route-row:nth-child(even){background:#172a37}
-.plan-panel .route-row.picked{background:#205265}
-.plan-panel .route-total{background:#f2b34e;color:#152531}
-.plan-panel .plan-tabs button.active{background:#156783;color:#fff}
+.plan-panel .major:hover:not(:disabled){background:#737373}
+.plan-panel .route-row{background:#222222}
+.plan-panel .route-row:nth-child(even){background:#272727}
+.plan-panel .route-row.picked{background:#494949}
+.plan-panel .route-total{background:#f2b34e;color:#222222}
+.plan-panel .plan-tabs button.active{background:#585858;color:#fff}
 .vihanga-waypoint:not(.selected){
   width:23px;height:23px;font-size:10px;line-height:1;
-  display:grid;place-items:center;background:#efa94b;color:#171f29;
-  border:2px solid #0d2635;box-shadow:0 2px 7px #000b
+  display:grid;place-items:center;background:#efa94b;color:#1e1e1e;
+  border:2px solid #222222;box-shadow:0 2px 7px #000b
 }
 .vihanga-waypoint.selected{
   width:29px;height:29px;font-size:12px;
-  border:2px solid #f9fbff;background:#75d4ed;color:#08131a;
-  box-shadow:0 0 0 4px #1e83a68a,0 4px 14px #000b
+  border:2px solid #fbfbfb;background:#c2c2c2;color:#111111;
+  box-shadow:0 0 0 4px #7070708a,0 4px 14px #000b
 }
-.network-watch {background:#0d1c28f8;border-color:#356e86;box-shadow:0 8px 25px #000c}
-.network-watch-top{background:#103143}
-.network-watch-details{background:#0c1a26}
+.network-watch {background:#1a1a1af8;border-color:#646464;box-shadow:0 8px 25px #000c}
+.network-watch-top{background:#2b2b2b}
+.network-watch-details{background:#181818}
 .ops-signal-item.healthy{background:#133e35;border-color:#268b72}
 .ops-signal-item.caution{background:#45321f;border-color:#bb8946}
 .ops-signal-item.fault{background:#492922;border-color:#bb685c}
-.instrument-dock{background:#101e29;border-top-color:#3b657a}
+.instrument-dock{background:#1c1c1c;border-top-color:#5e5e5e}
 .flight-handoff{padding:12px 14px 15px;display:grid;gap:8px;
-  border-top:1px solid #365467}
+  border-top:1px solid #4f4f4f}
 .flight-handoff>div{display:flex;justify-content:space-between;gap:8px;
   font-size:11px;line-height:1.5}
-.flight-handoff>div strong{color:#9db8c7}
-.flight-handoff>div span{color:#eff9ff;text-align:right}
+.flight-handoff>div strong{color:#b3b3b3}
+.flight-handoff>div span{color:#f7f7f7;text-align:right}
 .flight-handoff button,.plan-handoff button{
-  border:1px solid #3ca0bd;background:#145f79;color:#eefbff;border-radius:5px;
+  border:1px solid #8d8d8d;background:#515151;color:#f9f9f9;border-radius:5px;
   font-size:12px;font-weight:800;min-height:37px;padding:8px 10px
 }
-.flight-handoff button:hover,.plan-handoff button:hover{background:#2080a0}
-.flight-handoff p,.plan-handoff p{font-size:10px;color:#a5bdca;
+.flight-handoff button:hover,.plan-handoff button:hover{background:#6e6e6e}
+.flight-handoff p,.plan-handoff p{font-size:10px;color:#b9b9b9;
   line-height:1.5;margin:0}
-.plan-handoff{padding:12px 14px;display:grid;gap:8px;border-top:1px solid #365468}
+.plan-handoff{padding:12px 14px;display:grid;gap:8px;border-top:1px solid #4f4f4f}
 .plan-handoff button:disabled{opacity:.4}
-.connection-settings-backdrop{background:#02070cb8}
+.connection-settings-backdrop{background:#060606b8}
 .connection-settings-panel {
-  background:#0e1923;border:1px solid #38627a;color:#e6f3fb;
+  background:#171717;border:1px solid #5b5b5b;color:#f1f1f1;
   box-shadow:0 26px 65px #000d
 }
 .connection-settings-head,.connection-settings-footer {
-  background:#132332;border-color:#335c72
+  background:#212121;border-color:#555555
 }
-.connection-settings-head h2,.connection-link-title strong{color:#f0f9ff}
-.connection-kicker,.connection-settings-label{color:#89c8df}
-.connection-settings-head p,.connection-link-card small{color:#aec3d1}
+.connection-settings-head h2,.connection-link-title strong{color:#f8f8f8}
+.connection-kicker,.connection-settings-label{color:#bcbcbc}
+.connection-settings-head p,.connection-link-card small{color:#c0c0c0}
 .connection-settings-close,.connection-settings-footer .connection-secondary {
-  background:#1b3140;color:#e6f3f9;border-color:#446e83
+  background:#2d2d2d;color:#f1f1f1;border-color:#676767
 }
-.connection-settings-close:hover{background:#29495c}
-.connection-settings-scroll,.connection-status-grid{background:#0e1923;
-  scrollbar-color:#39647d #122330}
-.connection-link-card{background:#162733;border-color:#345365;color:#dbeef8}
-.connection-link-card.is-selected{border-color:#5ab5d4}
-.connection-link-card.live .connection-link-status{color:#77e3b8}
+.connection-settings-close:hover{background:#444444}
+.connection-settings-scroll,.connection-status-grid{background:#171717;
+  scrollbar-color:#5d5d5d #202020}
+.connection-link-card{background:#242424;border-color:#4e4e4e;color:#ebebeb}
+.connection-link-card.is-selected{border-color:#a4a4a4}
+.connection-link-card.live .connection-link-status{color:#c9c9c9}
 .connection-link-status{color:#f2a896}
-.connection-selected{background:#144b65;color:#b7e7f7}
-.connection-role-switch{background:#132b3b;border-color:#30576b}
-.connection-role-switch button{color:#bad1dc}
-.connection-role-switch button.active{background:#146587;border-color:#228bad;color:white}
+.connection-selected{background:#414141;color:#dedede}
+.connection-role-switch{background:#272727;border-color:#505050}
+.connection-role-switch button{color:#cdcdcd}
+.connection-role-switch button.active{background:#565656;border-color:#777777;color:white}
 .connection-settings-methods button{
-  background:#162a39;border:1px solid #315769;color:#c4dfef
+  background:#272727;border:1px solid #505050;color:#dadada
 }
-.connection-settings-methods button strong{color:#e2f3fb}
-.connection-settings-methods button small{color:#a3bdcb}
-.connection-settings-methods button svg{color:#88c3dd}
+.connection-settings-methods button strong{color:#f0f0f0}
+.connection-settings-methods button small{color:#b8b8b8}
+.connection-settings-methods button svg{color:#b8b8b8}
 .connection-settings-methods button.active {
-  background:#124d68;border:1px solid #43b7db;
-  color:#f1faff;box-shadow:inset 0 0 0 1px #43b7db
+  background:#424242;border:1px solid #a1a1a1;
+  color:#f8f8f8;box-shadow:inset 0 0 0 1px #a1a1a1
 }
-.connection-settings-methods button.active small{color:#c3efff}
-.connection-settings-methods button.active svg{color:#8fe1f8}
+.connection-settings-methods button.active small{color:#e7e7e7}
+.connection-settings-methods button.active svg{color:#d1d1d1}
 .connection-settings-methods button:hover:not(.active){
-  background:#203e50;border-color:#6ebcd6
+  background:#393939;border-color:#adadad
 }
-.connection-settings-form label{color:#b8d2df}
+.connection-settings-form label{color:#cdcdcd}
 .connection-settings-form input,.connection-settings-form select{
-  background:#0b1a25;border:1px solid #456c82;color:#ecf6fc
+  background:#181818;border:1px solid #656565;color:#f4f4f4
 }
 .connection-settings-form input:focus-visible,.connection-settings-form select:focus-visible {
-  outline-color:#64caeb
+  outline-color:#b7b7b7
 }
-.connection-settings-form input[readonly]{background:#142633;color:#98b4c7}
-.connection-settings-info{background:#112c3d;border:1px solid #315b72;color:#bad5e4}
+.connection-settings-form input[readonly]{background:#232323;color:#afafaf}
+.connection-settings-info{background:#272727;border:1px solid #545454;color:#d0d0d0}
 .connection-settings-error{background:#40231f;border:1px solid #b66856;border-left:4px solid #e58a78;color:#ffd6cb}
-.connection-settings-management{border-color:#2e4e60}
+.connection-settings-management{border-color:#484848}
 .connection-settings-management button{
-  background:#19384a;color:#a9e5fa;border-color:#3c7b96
+  background:#333333;color:#dadada;border-color:#707070
 }
-.connection-settings-management button:hover:not(:disabled){background:#23526a}
+.connection-settings-management button:hover:not(:disabled){background:#4a4a4a}
 .connection-settings-management .connection-disconnect{
   background:#452c29;color:#ffd2c9;border-color:#975c57
 }
-.connection-settings-footer>p{color:#a6c4d2}
-.connection-settings-footer .connection-primary{background:#0e7797;border-color:#36aed1;color:#fff}
-.connection-settings-footer .connection-primary:hover:not(:disabled){background:#178faf}
+.connection-settings-footer>p{color:#bfbfbf}
+.connection-settings-footer .connection-primary{background:#636363;border-color:#979797;color:#fff}
+.connection-settings-footer .connection-primary:hover:not(:disabled){background:#787878}
 .connection-scan-button {
   margin:4px 0 10px;padding:7px 11px;min-height:33px;
-  border-radius:5px;border:1px solid #367e9a;background:#163b51;
-  font-size:11px;font-weight:700;color:#c8efff
+  border-radius:5px;border:1px solid #717171;background:#353535;
+  font-size:11px;font-weight:700;color:#e8e8e8
 }
-.connection-scan-button:hover:not(:disabled){background:#205873}
-.connection-settings-panel select option {background:#101f2a;color:#e8f6fd}
+.connection-scan-button:hover:not(:disabled){background:#4e4e4e}
+.connection-settings-panel select option {background:#1d1d1d;color:#f4f4f4}
 @media(max-width:740px){
   .flight-handoff>div{flex-direction:column;gap:0}
   .connection-settings-panel{border-radius:6px}
 }
 
 /* Compact connection state colors in the night theme. */
-.connection-advanced-methods summary {color:#9cd8ee}
-.connection-advanced-methods summary:hover {color:#f2fbff}
-.connection-advanced-methods .connection-settings-methods button {background:#162a39}
+.connection-advanced-methods summary {color:#cdcdcd}
+.connection-advanced-methods summary:hover {color:#f9f9f9}
+.connection-advanced-methods .connection-settings-methods button {background:#272727}
 .connection-configured-note {
-  color:#b8d9e7;background:#102b38;border:1px solid #2d566b;
+  color:#d3d3d3;background:#262626;border:1px solid #4f4f4f;
 }
-.connection-inline-note {color:#9dbac9}
+.connection-inline-note {color:#b5b5b5}

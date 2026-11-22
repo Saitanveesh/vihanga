@@ -10,3 +10,4 @@ console/dist/
 .env
 .env.*
 !.env.example
+.vihanga-secrets/

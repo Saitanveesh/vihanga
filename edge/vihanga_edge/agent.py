@@ -10,9 +10,11 @@ from dataclasses import dataclass
 import fcntl
 from ipaddress import ip_address
 import time
+import json
 import logging
 import os
 from pathlib import Path
+from random import uniform
 import re
 from urllib.parse import urlsplit
 
@@ -22,6 +24,7 @@ from websockets.asyncio.client import connect
 from vihanga_edge.lan import LanFanout
 
 LOG = logging.getLogger("vihanga.edge")
+DIAGNOSTICS_PROTOCOL = "vihanga-diagnostics.v1"
 VALID_MESSAGES = frozenset({
     "HEARTBEAT", "ATTITUDE", "GPS_RAW_INT", "GPS2_RAW", "GLOBAL_POSITION_INT",
     "SYS_STATUS", "BATTERY_STATUS", "VFR_HUD", "STATUSTEXT", "HOME_POSITION",
@@ -30,6 +33,10 @@ VALID_MESSAGES = frozenset({
     "COMMAND_ACK", "RADIO_STATUS", "RC_CHANNELS", "RC_CHANNELS_RAW",
     "GPS_STATUS", "AUTOPILOT_VERSION"
 })
+
+
+def retry_delay(attempt: int) -> float:
+    return min(20, 2 ** min(attempt, 5) * uniform(.8, 1.2))
 
 
 @dataclass(frozen=True)
@@ -145,6 +152,18 @@ class CloudUplink:
         self.queue: asyncio.Queue = asyncio.Queue(maxsize=256)
         self.websocket = None
         self.dropped = 0
+        self.sent = 0
+        self.uart_open = False
+        self.uart_bytes = self.uart_accepted = self.uart_rejected = 0
+        self.last_uart: float | None = None
+
+    def diagnostic_report(self) -> str:
+        return json.dumps({
+            "version": 1, "uart_open": self.uart_open, "uart_bytes": self.uart_bytes,
+            "uart_accepted": self.uart_accepted, "uart_rejected": self.uart_rejected,
+            "uart_age_ms": round((time.monotonic() - self.last_uart) * 1000) if self.last_uart is not None else None,
+            "uplink_sent": self.sent, "uplink_dropped": self.dropped,
+        }, separators=(",", ":"))
 
     def offer(self, packet: bytes) -> None:
         if self.queue.full():
@@ -168,32 +187,49 @@ class CloudUplink:
     async def run(self, settings: Settings) -> None:
         failures = 0
         while True:
+            connected_at = None
+            sent_before = self.sent
             try:
                 async with connect(
                     settings.cloud_wss,
+                    subprotocols=[DIAGNOSTICS_PROTOCOL],
                     additional_headers={"X-Vihanga-Device-Token": settings.token},
                     open_timeout=10, close_timeout=3, ping_interval=15,
                     max_size=1024, max_queue=8
                 ) as websocket:
                     self.websocket = websocket
-                    failures = 0
+                    connected_at = time.monotonic()
                     self.clear()
                     LOG.info("Cloud telemetry connected for %s", settings.vehicle_id)
+                    diagnostics = websocket.subprotocol == DIAGNOSTICS_PROTOCOL
+                    next_report = time.monotonic()
                     while True:
-                        queued_at, packet = await self.queue.get()
+                        if websocket.close_code is not None:
+                            break
+                        if diagnostics and time.monotonic() >= next_report:
+                            await asyncio.wait_for(websocket.send(self.diagnostic_report()), timeout=3)
+                            next_report = time.monotonic() + 2
+                        try:
+                            queued_at, packet = await asyncio.wait_for(
+                                self.queue.get(), max(0, next_report - time.monotonic()) if diagnostics else 2)
+                        except TimeoutError:
+                            continue
                         if time.monotonic() - queued_at > 1.5:
                             self.dropped += 1
                             continue
                         await asyncio.wait_for(websocket.send(packet), timeout=3)
+                        self.sent += 1
             except asyncio.CancelledError:
                 raise
             except Exception:
-                failures += 1
-                LOG.warning("Cloud uplink unavailable; retry attempt %d", failures)
+                pass
             finally:
                 self.websocket = None
                 self.clear()
-            await asyncio.sleep(min(2 ** min(failures, 4), 20))
+            stable = connected_at is not None and time.monotonic() - connected_at >= 15 and self.sent > sent_before
+            failures = 1 if stable else min(failures + 1, 5)
+            LOG.warning("Cloud uplink unavailable; backoff level %d", failures)
+            await asyncio.sleep(retry_delay(failures))
 
 
 async def read_uart(settings: Settings, uplink: CloudUplink,
@@ -201,30 +237,43 @@ async def read_uart(settings: Settings, uplink: CloudUplink,
     """UART remains independently owned even during total cloud outage."""
     failures = 0
     while True:
+        opened_at = None
         try:
             gate = FrameGate(settings.system_id)
             with serial.Serial(settings.port, settings.baud, timeout=0.2) as fc:
-                failures = 0
+                uplink.uart_open = True
+                uplink.last_uart = None
+                opened_at = time.monotonic()
                 LOG.info("Vihanga UART reader active for %s", settings.vehicle_id)
                 while True:
                     chunk = await asyncio.to_thread(fc.read, 512)
                     if not chunk:
                         continue
-                    for packet in gate.consume(bytes(chunk)):
+                    uplink.uart_bytes += len(chunk)
+                    rejected = gate.rejected
+                    packets = gate.consume(bytes(chunk))
+                    uplink.uart_rejected += gate.rejected - rejected
+                    uplink.uart_accepted += len(packets)
+                    if packets:
+                        uplink.last_uart = time.monotonic()
+                    for packet in packets:
                         uplink.offer(packet)
                         if lan is not None:
                             lan.publish(packet)
         except asyncio.CancelledError:
+            uplink.uart_open = False
             raise
         except Exception:
-            failures += 1
-            LOG.warning("Edge UART read failed; reopening attempt %d", failures)
+            uplink.uart_open = False
+            stable = opened_at is not None and time.monotonic() - opened_at >= 15 and uplink.last_uart is not None
+            failures = 1 if stable else min(failures + 1, 5)
+            LOG.warning("Edge UART read failed; backoff level %d", failures)
             # A dead UART must close both remote sessions so that consumers
             # immediately invalidate their projector epochs and cached state.
             await uplink.invalidate()
             if lan is not None:
                 await lan.invalidate()
-            await asyncio.sleep(min(2 ** min(failures, 4), 20))
+            await asyncio.sleep(retry_delay(failures))
 
 
 async def forward(settings: Settings) -> None:

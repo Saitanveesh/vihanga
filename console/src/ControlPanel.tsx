@@ -50,7 +50,7 @@ export default function ControlPanel({
     aria-label="Flight operations and aircraft configuration">
     <header className="control-head">
       <div>
-        <span className="control-eyebrow">VIHANGA / FLIGHT OPERATIONS</span>
+        
         <h2>Aircraft control</h2>
         <small>{aircraftId || "No aircraft"} · {telemetry?.status || "OFFLINE"}</small>
       </div>

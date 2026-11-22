@@ -20,11 +20,26 @@ import sqlite3
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from vihanga.bench import BenchRecorder, CaptureBusy
+from vihanga.station_auth import COOKIE, LOCAL_BROWSER_ORIGINS, StationAccess, can_see
 from vihanga.survey import router as survey_router
 from vihanga.operator_contract import BenchQuery, catalog
 from vihanga.telemetry import BrokerConnect, CloudConnect, LanConnect, UDPConnect, TCPConnect, SerialConnect, LinkManager
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class ConsoleAssets(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code in (200, 206, 304) and re.fullmatch(
+            r"[^/]+-[A-Za-z0-9_-]{8,}\.(?:m?js|css)", path
+        ):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 def now_utc() -> str:
@@ -40,6 +55,10 @@ class VehicleCreate(StrictModel):
     label: str = Field(min_length=3, max_length=80)
     autopilot: Literal["ARDUPILOT", "PX4", "OTHER"]
     interface: Literal["UART", "USB", "ETHERNET", "OTHER"]
+
+
+class BenchCaptureCreate(StrictModel):
+    duration_seconds: Literal[30, 60, 120, 300]
 
 
 class Waypoint(StrictModel):
@@ -72,7 +91,7 @@ def route_length_m(waypoints: list[dict]) -> float:
     return round(total, 2)
 
 
-def create_app(db_path: str | Path | None = None) -> FastAPI:
+def create_app(db_path: str | Path | None = None, *, console_dist: str | Path | None = None) -> FastAPI:
     path = Path(db_path or os.environ.get("VIHANGA_DEV_DB", "data/vihanga-dev.sqlite3"))
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -102,11 +121,35 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     # Loopback-only development API. Reject DNS rebinding via arbitrary Host values.
     app.add_middleware(TrustedHostMiddleware,
                        allowed_hosts=["127.0.0.1", "localhost", "testserver"])
+    access = StationAccess()
+    app.state.access = access
+    access.install(app)
     links = LinkManager()
     app.state.links = links
+    bench = BenchRecorder(db, links.snapshot)
     app.include_router(survey_router)
+    dist_setting = console_dist if console_dist is not None else os.environ.get("VIHANGA_CONSOLE_DIST")
+    dist = Path(dist_setting).resolve() if dist_setting else None
+    if dist is not None:
+        if not (dist / "index.html").is_file() or not (dist / "assets").is_dir():
+            raise RuntimeError("The Vihanga console bundle is missing. Build console/dist before launch.")
+
+        @app.get("/", include_in_schema=False)
+        def operator_console():
+            return FileResponse(dist / "index.html", media_type="text/html",
+                                headers={"Cache-Control": "no-store", "X-Vihanga-Console": "production"})
+
+        @app.get("/vihanga-mark.svg", include_in_schema=False)
+        def operator_mark():
+            return FileResponse(dist / "vihanga-mark.svg", media_type="image/svg+xml")
+
+        assets = ConsoleAssets(directory=dist / "assets")
+        app.mount("/assets", GZipMiddleware(assets, minimum_size=1024, compresslevel=4),
+                  name="operator-assets")
 
     def require_vehicle(vehicle_id: str) -> None:
+        if not can_see(vehicle_id):
+            raise HTTPException(status_code=404, detail="Aircraft not registered")
         with db() as con:
             exists = con.execute("SELECT 1 FROM vehicles WHERE vehicle_id=?", (vehicle_id,)).fetchone()
         if exists is None:
@@ -264,7 +307,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         with db() as con:
             ids = [row["vehicle_id"] for row in
                    con.execute("SELECT vehicle_id FROM vehicles ORDER BY vehicle_id").fetchall()]
-        return {vehicle_id: links.snapshot(vehicle_id) for vehicle_id in ids}
+        return {vehicle_id: links.snapshot(vehicle_id) for vehicle_id in ids if can_see(vehicle_id)}
 
     @app.get("/api/v1/telemetry/{vehicle_id}")
     async def telemetry(vehicle_id: str):
@@ -285,30 +328,80 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     async def live_telemetry_socket(socket: WebSocket, vehicle_id: str):
         # Browsers can open cross-origin WebSockets without a CORS preflight.
         origin = socket.headers.get("origin")
-        if origin is not None and origin not in {
-            "http://127.0.0.1:5173", "http://localhost:5173",
-            "http://127.0.0.1:8010", "http://localhost:8010",
-        }:
+        if origin is not None and origin not in LOCAL_BROWSER_ORIGINS:
             await socket.close(code=1008)
             return
+        token = socket.cookies.get(COOKIE, "")
+        if access.enabled:
+            account = access.identify(token)
+            if account is None or not account.permits(vehicle_id):
+                await socket.close(code=1008)
+                return
         with db() as con:
             known = con.execute("SELECT 1 FROM vehicles WHERE vehicle_id=?", (vehicle_id,)).fetchone()
         if not known:
             await socket.close(code=4404)
             return
         await socket.accept()
+        peer = asyncio.create_task(socket.receive())
         try:
-            while True:
-                await socket.send_json(links.snapshot(vehicle_id))
-                await asyncio.sleep(0.25)
-        except (WebSocketDisconnect, RuntimeError, OSError):
+            while not peer.done():
+                if access.enabled and access.identify(token) is None:
+                    await socket.close(code=1008)
+                    break
+                await asyncio.wait_for(socket.send_json(links.snapshot(vehicle_id)), timeout=2)
+                await asyncio.wait({peer}, timeout=0.25)
+            if peer.done() and peer.result().get("type") == "websocket.receive":
+                await socket.close(code=1008)
+        except (WebSocketDisconnect, RuntimeError, OSError, TimeoutError):
             pass
+        finally:
+            peer.cancel()
+            await asyncio.gather(peer, return_exceptions=True)
 
     @app.on_event("shutdown")
     async def stop_links():
+        await bench.close()
         for vehicle_id in tuple(links.sessions):
             await links.stop(vehicle_id)
 
+    def require_station_origin(request: Request):
+        origin = request.headers.get("origin")
+        if origin and origin not in LOCAL_BROWSER_ORIGINS:
+            raise HTTPException(status_code=403, detail="Browser origin not approved")
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            raise HTTPException(status_code=403, detail="Cross-site bench requests rejected")
+
+    @app.get("/api/v1/bench/captures/{vehicle_id}")
+    def bench_captures(vehicle_id: str):
+        require_vehicle(vehicle_id)
+        return bench.list(vehicle_id)
+
+    @app.post("/api/v1/bench/captures/{vehicle_id}", status_code=201)
+    async def start_bench_capture(vehicle_id: str, payload: BenchCaptureCreate, request: Request):
+        require_station_origin(request)
+        require_vehicle(vehicle_id)
+        try:
+            return bench.start(vehicle_id, payload.duration_seconds)
+        except CaptureBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/v1/bench/captures/{vehicle_id}/{capture_id}")
+    def bench_capture(vehicle_id: str, capture_id: str):
+        require_vehicle(vehicle_id)
+        report = bench.detail(vehicle_id, capture_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Bench capture not found")
+        return report
+
+    @app.post("/api/v1/bench/captures/{vehicle_id}/{capture_id}/stop")
+    async def stop_bench_capture(vehicle_id: str, capture_id: str, request: Request):
+        require_station_origin(request)
+        require_vehicle(vehicle_id)
+        report = await bench.stop(vehicle_id, capture_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Bench capture not found")
+        return report
 
     @app.get("/api/v1/operator/{vehicle_id}/catalog")
     def operator_catalog(vehicle_id: str):
@@ -348,14 +441,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         # No network command route or flight-changing MAVLink writer exists.
         if request.headers.get("x-vihanga-bench-read") != "confirm-non-actuating-request":
             raise HTTPException(status_code=403, detail="Explicit bench read header required")
-        origin = request.headers.get("origin")
-        if origin and origin not in {
-            "http://127.0.0.1:5173", "http://localhost:5173",
-            "http://127.0.0.1:8010", "http://localhost:8010",
-        }:
-            raise HTTPException(status_code=403, detail="Browser origin not approved")
-        if request.headers.get("sec-fetch-site") == "cross-site":
-            raise HTTPException(status_code=403, detail="Cross-site bench requests rejected")
+        require_station_origin(request)
         session = links.active_session(vehicle_id)
         if session is None or session.kind != "LOCAL_SERIAL_RECEIVE":
             raise HTTPException(status_code=409, detail="Local USB serial connection required")
@@ -366,10 +452,14 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return {**result, "query": payload.query.value}
 
     @app.get("/api/v1/health")
-    def health():
+    def health(request: Request):
+        account = access.identify(request.cookies.get(COOKIE, ""))
+        visible = (i for i in links.sessions if not access.enabled or (account and account.permits(i)))
         return {"service": "vihanga-standalone", "status": "ok",
-                "deployment": "LOCAL_DEVELOPMENT", "physical_flight_control": False,
-                "live_vehicle_stream": any(links.snapshot(i)["status"] == "LIVE" for i in links.sessions)}
+                "deployment": "LOCAL_STATION" if dist is not None else "LOCAL_DEVELOPMENT",
+                "console_served": dist is not None, "physical_flight_control": False,
+                "bench_read_configured": os.environ.get("VIHANGA_BENCH_READ_REQUESTS") == "1",
+                "live_vehicle_stream": any(links.snapshot(i)["status"] == "LIVE" for i in visible)}
 
     @app.get("/api/v1/capabilities")
     def capabilities():
@@ -388,7 +478,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             rows = con.execute("SELECT * FROM vehicles ORDER BY created_at, vehicle_id").fetchall()
             return [{**dict(row), "link_state": links.snapshot(row["vehicle_id"])["status"],
                      "control_authorized": False}
-                    for row in rows]
+                    for row in rows if can_see(row["vehicle_id"])]
 
     @app.post("/api/v1/vehicles", status_code=201)
     def register_vehicle(vehicle: VehicleCreate):
@@ -413,18 +503,19 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     def missions():
         with db() as con:
             rows = con.execute("SELECT * FROM missions ORDER BY rowid DESC").fetchall()
-            return [mission_row(row) for row in rows]
+            return [mission_row(row) for row in rows if can_see(row["vehicle_id"])]
 
     @app.get("/api/v1/missions/{mission_id}")
     def mission(mission_id: str):
         with db() as con:
             row = con.execute("SELECT * FROM missions WHERE mission_id=?", (mission_id,)).fetchone()
-        if row is None:
+        if row is None or not can_see(row["vehicle_id"]):
             raise HTTPException(status_code=404, detail="Mission draft not found")
         return mission_row(row)
 
     @app.post("/api/v1/missions", status_code=201)
     def create_mission(payload: MissionDraftCreate):
+        require_vehicle(payload.vehicle_id)
         waypoint_list = [p.model_dump() for p in payload.waypoints]
         canonical = json.dumps({
             "vehicle_id": payload.vehicle_id, "title": payload.title,
