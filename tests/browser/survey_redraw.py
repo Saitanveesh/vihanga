@@ -29,8 +29,15 @@ def api(route):
         data = {"polygon": polygon, "waypoints": [dict(p, altitude_m=35) for p in polygon],
                 "pattern": "PARALLEL", "area_m2": 100, "route_distance_m": 50,
                 "estimated_duration_s": 10, "lane_count": 2, "status": "PREVIEW_ONLY"}
-    else:
+    elif path.startswith("flight-tracks/"):
+        data = {"points": [], "count": 0}
+    elif path == "fleet/telemetry":
+        data = {}
+    elif path == "missions":
         data = []
+    else:
+        route.fulfill(status=404, json={"detail": "Unavailable"})
+        return
     route.fulfill(json=data)
 
 

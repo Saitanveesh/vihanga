@@ -307,7 +307,7 @@ export default function App({ account, onInitialChecksComplete }: {
       try {
         const result = await getObservedTrack(selected, controller.signal);
         if (!stopped) {
-          const points = result.points;
+          const points = Array.isArray(result?.points) ? result.points : EMPTY_TRACK;
           setObservedTrack(previous => previous.length === points.length && previous.every((point, index) =>
             point.latitude === points[index].latitude && point.longitude === points[index].longitude)
             ? previous : points);
