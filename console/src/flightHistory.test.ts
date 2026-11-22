@@ -36,3 +36,13 @@ describe("flight telemetry trends", () => {
     expect(next.map(point => point.frames)).toEqual([1]);
   });
 });
+
+it("retains the reported fix from the same sample and omits invalid coordinates and gaps", () => {
+  const sample = { ...reading(1), gps_fix_type: 3, latitude: 0, longitude: 77 };
+  expect(recordFlightPoint([], sample, 1000)[0].position).toEqual({ latitude: 0, longitude: 77 });
+  for (const invalid of [{ gps_fix_type: 1 }, { latitude: 91 }, { longitude: Infinity }]) {
+    expect(recordFlightPoint([], { ...sample, ...invalid }, 1000)[0].position).toBeNull();
+  }
+  const good = recordFlightPoint([], sample, 1000);
+  expect(recordFlightPoint(good, undefined, 2000).at(-1)?.position).toBeNull();
+});

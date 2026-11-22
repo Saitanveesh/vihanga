@@ -15,6 +15,7 @@ export type FlightMetric = typeof flightMetrics[number]["key"];
 export type FlightPoint = {
   at: number;
   frames: number | null;
+  position?: { latitude: number; longitude: number } | null;
   values: Record<FlightMetric, number | null>;
 };
 
@@ -44,7 +45,11 @@ export function recordFlightPoint(history: FlightPoint[], telemetry: Telemetry |
     climb_mps: live ? finite(sample.climb_mps) : null,
     voltage_v: live ? finite(sample.voltage_v) : null
   };
-  return [...(reset ? [] : retained), { at: now, frames, values }];
+  const latitude = finite(sample?.latitude);
+  const longitude = finite(sample?.longitude);
+  const position = live && (sample.gps_fix_type ?? 0) >= 3 && latitude !== null && longitude !== null
+    && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { latitude, longitude } : null;
+  return [...(reset ? [] : retained), { at: now, frames, values, position }];
 }
 
 export function flightCsv(points: FlightPoint[]): string {

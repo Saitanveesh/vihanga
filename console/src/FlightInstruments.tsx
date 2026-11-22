@@ -3,7 +3,7 @@ import type { Telemetry } from "./api";
 import FlightTrend, { useFlightTrend } from "./FlightTrend";
 import QuickView from "./flight-deck/QuickView";
 import FlightEvents, { useFlightEvents } from "./FlightEvents";
-import { currentTelemetry, finite, type FlightMetric } from "./flightHistory";
+import { currentTelemetry, finite, type FlightMetric, type FlightPoint } from "./flightHistory";
 
 const ticks = [0, .125, .25, .375, .5, .625, .75, .875, 1];
 const compassTicks = [-60, -45, -30, -15, 0, 15, 30, 45, 60];
@@ -74,15 +74,15 @@ function Heading({ yaw }: { yaw: number | null }) {
   </section>;
 }
 
-export default function FlightInstruments({ telemetry, aircraftId = "" }: {
-  telemetry?: Telemetry; aircraftId?: string;
+export default function FlightInstruments({ telemetry, aircraftId = "", onReview }: {
+  telemetry?: Telemetry; aircraftId?: string; onReview?: (point: FlightPoint | null) => void;
 }) {
   const eventLog = useFlightEvents(aircraftId, telemetry);
-  return <InstrumentDisplay key={aircraftId} aircraftId={aircraftId} telemetry={telemetry} eventLog={eventLog}/>;
+  return <InstrumentDisplay onReview={onReview} key={aircraftId} aircraftId={aircraftId} telemetry={telemetry} eventLog={eventLog}/>;
 }
 
-function InstrumentDisplay({ telemetry, aircraftId, eventLog }: {
-  telemetry?: Telemetry; aircraftId: string; eventLog: ReturnType<typeof useFlightEvents>;
+function InstrumentDisplay({ telemetry, aircraftId, eventLog, onReview }: {
+  telemetry?: Telemetry; aircraftId: string; onReview?: (point: FlightPoint | null) => void; eventLog: ReturnType<typeof useFlightEvents>;
 }) {
   const [display, setDisplay] = useState<"instruments" | "trends" | "events">("instruments");
   const [layout, setLayout] = useState(() => {
@@ -127,7 +127,7 @@ function InstrumentDisplay({ telemetry, aircraftId, eventLog }: {
       </span>
     </div>
     {display === "events" ? <FlightEvents aircraftId={aircraftId} {...eventLog}/> :
-      display === "trends" ? <FlightTrend metricKey={metricKey} aircraftId={aircraftId} {...trend}/> :
+      display === "trends" ? <FlightTrend key={trend.source} onReview={onReview} metricKey={metricKey} aircraftId={aircraftId} {...trend}/> :
       layout === "quick" ? <QuickView now={trend.now} points={trend.points} onTrend={showTrend}
         values={{ groundspeed_mps: groundspeed, relative_alt_m: altitude, climb_mps: climb, voltage_v: voltage }}/> :
       <div className="station-gauge-grid">

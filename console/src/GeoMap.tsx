@@ -11,6 +11,7 @@ type Props = {
   track: MapPoint[];
   position: MapPoint | null;
   drawing: boolean;
+  review?: { at: number; position?: MapPoint | null } | null;
   editingBoundary?: boolean;
   basemap: "satellite" | "streets" | "grid";
   centerSignal: number;
@@ -121,7 +122,7 @@ function installWaypointBadges(map: MapLibreMap, count: number) {
 }
 
 export default function GeoMap({
-  polygon, route, track, position, drawing, editingBoundary = false, basemap, centerSignal, fitSignal,
+  polygon, route, track, position, review, drawing, editingBoundary = false, basemap, centerSignal, fitSignal,
   selectedWaypoint = null, onWaypointSelect, fitLeftPadding = 120, follow = false, onFollowInterrupted,
   onMapClick, onVertexMove
 }: Props) {
@@ -359,6 +360,18 @@ export default function GeoMap({
       });
     }
   }, [fitSignal, fitLeftPadding]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !review?.position) return;
+    const element = document.createElement("span");
+    element.className = "station-review-pin";
+    element.textContent = "Review · " + new Date(review.at).toLocaleTimeString();
+    const coordinates: [number, number] = [review.position.longitude, review.position.latitude];
+    const marker = new maplibregl.Marker({ element, anchor: "bottom" }).setLngLat(coordinates).addTo(map);
+    if (!map.getBounds().contains(coordinates)) map.jumpTo({ center: coordinates });
+    return () => { marker.remove(); };
+  }, [review]);
 
   return <>
     <div ref={mount} className={drawing ? "map-canvas drawing" : "map-canvas"}
