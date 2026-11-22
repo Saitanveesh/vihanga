@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Telemetry } from "./api";
 import FlightTrend, { useFlightTrend } from "./FlightTrend";
+import QuickView from "./flight-deck/QuickView";
 import FlightEvents, { useFlightEvents } from "./FlightEvents";
 import { currentTelemetry, finite, type FlightMetric } from "./flightHistory";
 
@@ -84,6 +85,10 @@ function InstrumentDisplay({ telemetry, aircraftId, eventLog }: {
   telemetry?: Telemetry; aircraftId: string; eventLog: ReturnType<typeof useFlightEvents>;
 }) {
   const [display, setDisplay] = useState<"instruments" | "trends" | "events">("instruments");
+  const [layout, setLayout] = useState(() => {
+    try { return localStorage.getItem("vihanga.flight.layout") === "quick" ? "quick" : "gauges"; }
+    catch { return "gauges"; }
+  });
   const [metricKey, setMetricKey] = useState<FlightMetric>();
   function showTrend(key?: FlightMetric) {
     setMetricKey(key);
@@ -109,12 +114,22 @@ function InstrumentDisplay({ telemetry, aircraftId, eventLog }: {
         <button type="button" aria-pressed={display === "trends"} onClick={() => showTrend()}>Telemetry trends</button>
         <button type="button" aria-pressed={display === "events"} onClick={() => setDisplay("events")}>Events</button>
       </div>
+      {display === "instruments" && <select className="instrument-layout" aria-label="Instrument layout" value={layout}
+        onChange={event => {
+          const next = event.target.value;
+          setLayout(next);
+          try { localStorage.setItem("vihanga.flight.layout", next); } catch { /* Session-only layout. */ }
+        }}>
+        <option value="gauges">Gauges</option><option value="quick">Quick view</option>
+      </select>}
       <span className={heartbeat ? "readout-good" : "readout-bad"} title="Flight-controller heartbeat">
         <i aria-hidden="true"/> {heartbeat ? "FC HEARTBEAT" : telemetry?.status === "STALE" ? "TELEMETRY STALE" : "NO FC HEARTBEAT"}
       </span>
     </div>
     {display === "events" ? <FlightEvents aircraftId={aircraftId} {...eventLog}/> :
       display === "trends" ? <FlightTrend metricKey={metricKey} aircraftId={aircraftId} {...trend}/> :
+      layout === "quick" ? <QuickView now={trend.now} points={trend.points} onTrend={showTrend}
+        values={{ groundspeed_mps: groundspeed, relative_alt_m: altitude, climb_mps: climb, voltage_v: voltage }}/> :
       <div className="station-gauge-grid">
         <Gauge onTrend={() => showTrend("groundspeed_mps")} label="Ground speed" value={groundspeed} min={0} max={Math.max(30, Math.ceil((groundspeed ?? 0) / 10) * 10)} unit="m/s"
           detail={airspeed == null ? "Air —" : "Air " + text(airspeed)}/>
