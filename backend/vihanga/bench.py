@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -76,6 +77,51 @@ def summarize(samples: list[dict]) -> dict:
     return {"sample_count": counts, **metrics, "events": events}
 
 
+def ledger_hash(previous: str, value: dict) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(bytes.fromhex(previous) + encoded).hexdigest()
+
+
+def ledger_seed(capture) -> str:
+    identity = {key: capture[key] for key in ("vehicle_id", "capture_id", "started_at", "duration_seconds")}
+    return ledger_hash("00" * 32, {"format": "vihanga.bench.v1", **identity})
+
+
+def verify_samples(capture, samples, count, head):
+    digest = ledger_seed(capture)
+    for sample in samples:
+        digest = ledger_hash(digest, sample)
+    return len(samples) == count and digest == head
+
+
+def continuity(samples):
+    changes = []
+    last = None
+    previous_ms = None
+    for i, sample in enumerate(samples):
+        ms = sample["elapsed_ms"]
+        if previous_ms is not None and ms - previous_ms > 2000:
+            changes.append({"index": i, "elapsed_ms": ms, "state": "Observation gap",
+                            "detail": f"{ms - previous_ms} ms between station samples"})
+            last = None
+        live = [role for role in RECEIVERS if sample[role]["transport"] and sample[role]["status"] == "LIVE"
+                and sample[role]["heartbeat_fresh"] and sample[role]["attitude_fresh"]]
+        source = sample["active_source"]
+        state = ("Both receivers live" if len(live) == 2 else
+                 f"{live[0].capitalize()} only" if live else "No live receiver observed")
+        detail = [f"Viewer: {source or 'unknown'}"]
+        for role in RECEIVERS:
+            path = sample[role].get("path_evidence") or {}
+            if path.get("diagnosis"):
+                detail.append(f"{role}: {path['diagnosis']}")
+        current = (state, " · ".join(detail))
+        if current != last:
+            changes.append({"index": i, "elapsed_ms": ms, "state": state, "detail": current[1]})
+        last = current
+        previous_ms = ms
+    return changes
+
+
 class BenchRecorder:
     def __init__(self, db, snapshot):
         self._db = db
@@ -95,6 +141,10 @@ class BenchRecorder:
                 capture_id TEXT NOT NULL REFERENCES bench_captures(capture_id) ON DELETE CASCADE,
                 elapsed_ms INTEGER NOT NULL, captured_at TEXT NOT NULL,
                 payload TEXT NOT NULL, PRIMARY KEY (capture_id, elapsed_ms)
+            )""")
+            con.execute("""CREATE TABLE IF NOT EXISTS bench_ledger (
+                capture_id TEXT PRIMARY KEY REFERENCES bench_captures(capture_id) ON DELETE CASCADE,
+                sample_count INTEGER NOT NULL, head TEXT NOT NULL
             )""")
             con.execute("""UPDATE bench_captures SET status = 'INTERRUPTED',
                         ended_at = COALESCE((SELECT MAX(captured_at) FROM bench_samples s
@@ -122,7 +172,15 @@ class BenchRecorder:
                                WHERE capture_id = ? ORDER BY elapsed_ms""", (capture_id,))
             samples = [{"elapsed_ms": row["elapsed_ms"], "captured_at": row["captured_at"],
                         **json.loads(row["payload"])} for row in rows]
-        return {"capture": {**dict(record), "sample_count": len(samples)},
+            checkpoint = con.execute("SELECT sample_count, head FROM bench_ledger WHERE capture_id = ?",
+                                     (capture_id,)).fetchone()
+        ledger = {"format": "vihanga.bench.v1", "status": "UNSEALED", "clock": "station observation",
+                  "continuity": continuity(samples)}
+        if checkpoint:
+            valid = verify_samples(record, samples, checkpoint["sample_count"], checkpoint["head"])
+            ledger.update(status="VERIFIED" if valid else "MISMATCH", head=checkpoint["head"],
+                          sample_count=checkpoint["sample_count"])
+        return {"ledger": ledger, "capture": {**dict(record), "sample_count": len(samples)},
                 "samples": samples, "summary": summarize(samples)}
 
     def start(self, vehicle_id: str, duration_seconds: int) -> dict:
@@ -136,6 +194,9 @@ class BenchRecorder:
                         WHERE status = 'RECORDING'""", (started_at,))
             con.execute("""INSERT INTO bench_captures VALUES (?, ?, ?, NULL, ?, 'RECORDING')""",
                         (capture_id, vehicle_id, started_at, duration_seconds))
+            seed = ledger_seed({"vehicle_id": vehicle_id, "capture_id": capture_id,
+                                "started_at": started_at, "duration_seconds": duration_seconds})
+            con.execute("INSERT INTO bench_ledger VALUES (?, 0, ?)", (capture_id, seed))
             self._write_sample(con, capture_id, 0, started_at, self._sample(vehicle_id))
             con.execute("""DELETE FROM bench_captures WHERE capture_id IN (
                         SELECT capture_id FROM bench_captures
@@ -162,6 +223,14 @@ class BenchRecorder:
     def _write_sample(con, capture_id: str, elapsed_ms: int, stamp: str, payload: str):
         con.execute("INSERT INTO bench_samples VALUES (?, ?, ?, ?)",
                     (capture_id, elapsed_ms, stamp, payload))
+
+        checkpoint = con.execute("SELECT head FROM bench_ledger WHERE capture_id = ?", (capture_id,)).fetchone()
+        if checkpoint is None:
+            raise RuntimeError("Missing ledger checkpoint")
+        entry = {"elapsed_ms": elapsed_ms, "captured_at": stamp, **json.loads(payload)}
+        digest = ledger_hash(checkpoint["head"], entry)
+        con.execute("UPDATE bench_ledger SET head = ?, sample_count = sample_count + 1 WHERE capture_id = ?",
+                    (digest, capture_id))
 
     def _persist_sample(self, capture_id: str, elapsed_ms: int, stamp: str, payload: str):
         with self._db() as con:

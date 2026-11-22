@@ -128,6 +128,20 @@ function Review({ report }: { report: BenchReport }) {
         <h4>{roleLabel[role]} path</h4><ReceiverPath data={sample[role]}/>
       </div>)}
     </div>}
+    {report.ledger && <section aria-label="Flight Ledger">
+      <h4>Flight Ledger</h4>
+      <p role={report.ledger.status === "MISMATCH" ? "alert" : undefined}>{
+        report.ledger.status === "VERIFIED" ? "Sample chain verified against the station checkpoint." :
+        report.ledger.status === "MISMATCH" ? "Integrity mismatch. Treat this capture as unreliable." :
+        "No capture-time checkpoint is available."}</p>
+      {report.ledger.head && <details><summary>SHA-256 checkpoint</summary>
+        <code style={{ overflowWrap: "anywhere" }}>{report.ledger.head}</code></details>}
+      <h4>Receiver continuity</h4>
+      <ol className="bench-events">{report.ledger.continuity.map((event, n) => <li key={n}>
+        <button type="button" onClick={() => setIndex(event.index)}>
+          <time>{seconds(event.elapsed_ms)}</time><b>{event.state}</b><span>{event.detail}</span>
+        </button></li>)}</ol>
+    </section>}
     <h4>Receiver changes</h4>
     {summary.events.length ? <ol className="bench-events">
       {summary.events.map(event => <li key={event.elapsed_ms + "/" + event.field}>
