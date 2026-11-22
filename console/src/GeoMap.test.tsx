@@ -42,6 +42,7 @@ vi.mock("maplibre-gl", () => {
     resize() { stats.resizeCalls++; }
     remove() {}
     setStyle() { this.source = null; }
+    stop() {}
     flyTo() {}
     jumpTo({ center }: { center: [number, number] }) { stats.centers.push(center); }
     fitBounds(_bounds: unknown, options: { padding: { left: number } }) { stats.fitPaddingLeft = options.padding.left; }
@@ -161,12 +162,12 @@ describe("geographic map visual geometry regression", () => {
     expect(props.onMapClick).toHaveBeenCalledWith(origin);
     props.onMapClick.mockClear();
     stats.hit = 2;
-    view.rerender(<GeoMap {...props} selectedWaypoint={1} editingBoundary/>);
+    view.rerender(<GeoMap {...props} selectedWaypoint={1} polygon={[origin]} editingBoundary/>);
     click(point);
     expect(props.onMapClick).toHaveBeenCalledWith(origin);
     expect(stats.data?.features.find(f => f.properties.selected)?.properties.index).toBe(2);
     props.onMapClick.mockClear();
-    stats.pressVertex?.({ features: [{ properties: { kind: "vertex", index: 1 } }], preventDefault() {} });
+    stats.pressVertex?.({ point: { x: 40, y: 40 }, features: [{ geometry: { type: "Point" }, properties: { kind: "vertex", index: 1 } }], preventDefault() {} });
     stats.release?.();
     click(point);
     expect(props.onMapClick).not.toHaveBeenCalled();

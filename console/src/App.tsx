@@ -1,4 +1,5 @@
 import { lazy, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { missionPlannerFile } from "./planner/missionFile";
 import type { MapPoint } from "./GeoMap";
 import PanelLoader from "./PanelLoader";
 import FlightInstruments from "./FlightInstruments";
@@ -306,7 +307,7 @@ export default function App({ account, onInitialChecksComplete }: {
       try {
         const result = await getObservedTrack(selected, controller.signal);
         if (!stopped) {
-          const points = result.points;
+          const points = Array.isArray(result?.points) ? result.points : EMPTY_TRACK;
           setObservedTrack(previous => previous.length === points.length && previous.every((point, index) =>
             point.latitude === points[index].latitude && point.longitude === points[index].longitude)
             ? previous : points);
@@ -501,6 +502,19 @@ export default function App({ account, onInitialChecksComplete }: {
     ));
   }
 
+  function exportMissionPlanner() {
+    if (!current?.home) return;
+    try {
+      const file = missionPlannerFile(current.home, waypoints);
+      const url = URL.createObjectURL(new Blob([file], { type: "text/plain" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = (selected || "vihanga") + ".waypoints";
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+      notify("Waypoints exported for Mission Planner review.");
+    } catch (error) { fail(error); }
+  }
   function exportDraftGeoJSON() {
     if (waypoints.length < 2) return fail(new Error("No route available to export"));
     const data = {
@@ -575,7 +589,12 @@ export default function App({ account, onInitialChecksComplete }: {
     if (route.length < 2) return fail(new Error("Add two waypoints or preview a survey polygon"));
     setBusy(true);
     try {
+      const revision = previewRevision.current;
       const draft = await saveMission({ vehicle_id: selected, title: missionTitle.trim(), waypoints: route });
+      if (revision !== previewRevision.current) {
+        await refresh();
+        return;
+      }
       setOpenedMission(draft);
       setSelectedWaypoint(null);
       setSurvey(null); setEditedRoute(null); setPolygon([]); setManual([]); setMissionTitle("");
@@ -850,7 +869,7 @@ export default function App({ account, onInitialChecksComplete }: {
               track={mapVisible ? observedTrack : EMPTY_TRACK} position={mapVisible ? location : null} drawing={section === "PLAN" && drawMode !== "NONE"}
               editingBoundary={section === "PLAN" && drawMode === "POLYGON"}
               basemap={basemap} centerSignal={centerSignal} fitSignal={fitSignal}
-              review={section === "FLIGHT" ? reviewPoint : null}
+              home={current?.home} review={section === "FLIGHT" ? reviewPoint : null}
               follow={section === "FLIGHT" && !reviewPoint && followAircraft} onFollowInterrupted={stopFollowing}
               selectedWaypoint={selectedWaypoint} onWaypointSelect={setSelectedWaypoint}
               fitLeftPadding={panelOpen && (section === "PLAN" || section === "HISTORY") ? 414 : 76}
@@ -996,6 +1015,8 @@ export default function App({ account, onInitialChecksComplete }: {
               <div><span>Travel time estimate</span><strong>{survey ? (survey.estimated_duration_s/60).toFixed(1) + " min" : "—"}</strong></div>
             </div>
             <div className="export-actions">
+              <button type="button" onClick={exportMissionPlanner} disabled={!current?.home || waypoints.length < 2}
+                title="Export waypoints relative to flight-controller home">Mission Planner file</button>
               <button type="button" onClick={exportDraftGeoJSON} disabled={waypoints.length < 2}>Export GeoJSON</button>
             </div>
             <form className="save-form" onSubmit={e => void saveDraft(e)}>
@@ -1011,10 +1032,9 @@ export default function App({ account, onInitialChecksComplete }: {
                   navigate("FLIGHT");
                   setFitSignal(x => x + 1);
                 }}>Review for Flight</button>
-              <p>Carry this route into the Flight workspace. This does not arm,
-                upload a mission or start the motors.</p>
+              <p>Review for Flight displays the planned route. To transfer it to Mission Planner, export the waypoint file and load it in Plan.</p>
             </div>
-            <p className="panel-footnote">Check terrain, obstacles and airspace before flight. Mission upload is not yet integrated.</p>
+            <p className="panel-footnote">{current?.home ? "Export includes FC home and relative-altitude waypoints. Review takeoff, landing and terrain in Mission Planner." : "Waypoint file export needs the selected aircraft’s reported home position."}</p>
           </section>}
           {panelOpen && section === "FLEET" && <section id="operator-panel" className="float-panel utility-panel">
             <div className="panel-title"><h2>Aircraft registry</h2><span>{vehicles.length} registered</span><button type="button" className="panel-close" onClick={() => setPanelOpen(false)} aria-label="Close panel" title="Close panel">×</button></div>
@@ -1137,6 +1157,9 @@ export default function App({ account, onInitialChecksComplete }: {
           <FlightInstruments operator={account?.name} onReview={setReviewPoint} telemetry={displaySample} aircraftId={selected}/>
         </div>
         <footer className="station-statusbar" aria-label="Station status">
+          <span title="Home reported by the selected flight controller">HOME <strong>{current?.home
+            ? current.home.latitude.toFixed(5) + ", " + current.home.longitude.toFixed(5)
+            : "Unconfirmed"}</strong></span>
           <span>MODE <strong>{current?.heartbeat_fresh ? current.mode ?? "—" : "—"}</strong></span>
           <span>FC <strong className={current?.armed === true ? "station-armed" : ""}>
             {!current?.heartbeat_fresh || current.armed == null ? "—" : current.armed ? "ARMED" : "DISARMED"}

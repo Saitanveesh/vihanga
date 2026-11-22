@@ -214,6 +214,12 @@ class MAVLinkProjector:
                 if all(isfinite(v) for v in vals) and abs(vals[0]) <= 180 and abs(vals[1]) <= 90:
                     for name, value in zip(("roll_deg", "pitch_deg", "yaw_deg"), vals):
                         self._set(name, round(value, 2), now)
+            elif typ == "HOME_POSITION":
+                lat, lon = msg.latitude / 1e7, msg.longitude / 1e7
+                if -90 <= lat <= 90 and -180 <= lon <= 180 and (lat or lon):
+                    self._set("home", {"latitude": lat, "longitude": lon, "altitude_msl_m": msg.altitude / 1000}, now)
+                else:
+                    self.fields.pop("home", None)
             elif typ == "GPS2_RAW":
                 fix2 = int(msg.fix_type)
                 if 0 <= fix2 <= 6:
@@ -385,6 +391,7 @@ class MAVLinkProjector:
         return {
             "heartbeat_fresh": fresh("heartbeat") is True,
             "attitude_fresh": roll is not None and pitch is not None,
+            "home": self.fields.get("home", (None,))[0],
             "gps_fix_type": fix, "satellites": fresh("satellites", 5),
             "gps2_fix_type": fresh("gps2_fix_type", 5),
             "gps2_satellites": fresh("gps2_satellites", 5),
