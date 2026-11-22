@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BrowserMavlinkState, MavlinkStream, mavlinkX25 } from "./BrowserSerial";
 
-const extra: Record<number, number> = {0:50,30:39,65:118,253:83};
+const extra: Record<number, number> = {0:50,30:39,65:118,242:104,253:83};
 
 function packet(id:number, body:Uint8Array, sysid=1, component=1): Uint8Array {
   const header = [253,body.length,0,0,0,sysid,component,id&255,(id>>8)&255,(id>>16)&255];
@@ -82,4 +82,14 @@ describe("browser MAVLink2 receive-only validated stream", () => {
     state.consume(statustext("Radio Failsafe Cleared"),1600);
     expect(state.snapshot(1700).rc_input_status).toBe("CHANNELS_REPORTED");
   });
+});
+
+it("accepts home only from the configured autopilot", () => {
+  const state = new BrowserMavlinkState("TEST", 1);
+  const body = new Uint8Array(12), v = new DataView(body.buffer);
+  v.setInt32(0, 120000000, true); v.setInt32(4, 770000000, true); v.setInt32(8, 910000, true);
+  state.consume(packet(242, body, 1, 68), 1);
+  expect(state.snapshot(1).home).toBeNull();
+  state.consume(packet(242, body), 2);
+  expect(state.snapshot(2).home).toEqual({latitude: 12, longitude: 77, altitude_msl_m: 910});
 });

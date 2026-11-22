@@ -21,7 +21,7 @@ export function getBrowserSerial(): BrowserSerialAPI | null {
 
 const crcExtras: Readonly<Record<number, number>> = {
   0:50, 1:124, 24:24, 30:39, 33:104, 35:244,
-  65:118, 74:20, 109:185, 253:83
+  65:118, 74:20, 109:185, 242:104, 253:83
 };
 const MAX_BUFFER = 8192;
 
@@ -95,6 +95,7 @@ export class BrowserMavlinkState {
   private frameTimes: number[] = [];
   private frames = 0;
   private currentMode: string | null = null;
+  private home: Telemetry["home"] = null;
   private failSafe: boolean | null = null;
   constructor(private readonly aircraftId: string, fcSystemId: number) {
     this.stream = new MavlinkStream(fcSystemId);
@@ -114,6 +115,14 @@ export class BrowserMavlinkState {
         this.put("armed", (view.getUint8(6) & 128) !== 0, now);
         const mode = view.getUint32(0, true);
         this.currentMode = "MODE " + mode;
+      } else if (id === 242 && payload.length) {
+        // MAVLink 2 removes trailing zero bytes, including zero altitude.
+        const raw = new Uint8Array(12);
+        raw.set(payload.subarray(0, 12));
+        const fields = new DataView(raw.buffer);
+        const latitude = fields.getInt32(0, true) / 1e7, longitude = fields.getInt32(4, true) / 1e7;
+        this.home = Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 && (latitude !== 0 || longitude !== 0)
+          ? {latitude, longitude, altitude_msl_m: fields.getInt32(8, true) / 1000} : null;
       } else if (id === 30 && payload.length >= 16) {
         const roll = finiteRange(toDegrees(view.getFloat32(4, true)), 180);
         const pitch = finiteRange(toDegrees(view.getFloat32(8, true)), 90);
@@ -207,7 +216,7 @@ export class BrowserMavlinkState {
       vehicle_id:this.aircraftId,transport:"BROWSER_SERIAL_READ_ONLY",status,
       error_code:null,flight_control_enabled:false,
       heartbeat_fresh:hb,attitude_fresh:attitude,
-      latitude:positionValid ? lat : null,longitude:positionValid ? lon : null,
+      home:this.home, latitude:positionValid ? lat : null,longitude:positionValid ? lon : null,
       roll_deg:value("roll_deg"),pitch_deg:value("pitch_deg"),yaw_deg:value("yaw_deg"),
       relative_alt_m:value("relative_alt_m"),groundspeed_mps:value("groundspeed_mps"),
       climb_mps:value("climb_mps"),voltage_v:value("voltage_v"),battery_pct:value("battery_pct"),

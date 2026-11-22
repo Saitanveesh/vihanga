@@ -57,6 +57,7 @@ export interface MissionCreate {
   waypoints: Waypoint[];
 }
 export interface Telemetry {
+  home?: { latitude: number; longitude: number; altitude_msl_m: number } | null;
   vehicle_id: string;
   transport: string | null;
   status: string;

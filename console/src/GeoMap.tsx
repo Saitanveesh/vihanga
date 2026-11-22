@@ -11,6 +11,7 @@ type Props = {
   track: MapPoint[];
   position: MapPoint | null;
   drawing: boolean;
+  home?: MapPoint | null;
   review?: { at: number; position?: MapPoint | null } | null;
   editingBoundary?: boolean;
   basemap: "satellite" | "streets" | "grid";
@@ -122,7 +123,7 @@ function installWaypointBadges(map: MapLibreMap, count: number) {
 }
 
 export default function GeoMap({
-  polygon, route, track, position, review, drawing, editingBoundary = false, basemap, centerSignal, fitSignal,
+  polygon, route, track, position, review, home, drawing, editingBoundary = false, basemap, centerSignal, fitSignal,
   selectedWaypoint = null, onWaypointSelect, fitLeftPadding = 120, follow = false, onFollowInterrupted,
   onMapClick, onVertexMove
 }: Props) {
@@ -244,6 +245,10 @@ export default function GeoMap({
       if (!editBoundaryRef.current || !event.features?.length) return;
       const record = event.features[0].properties;
       if (record?.kind !== "vertex" || !Number.isInteger(Number(record.index))) return;
+      const vertex = geometryRef.current.polygon[Number(record.index) - 1];
+      if (!vertex || event.features[0].geometry.type !== "Point") return;
+      const pixel = map.project([vertex.longitude, vertex.latitude]);
+      if (Math.hypot(pixel.x - event.point.x, pixel.y - event.point.y) > 10) return;
       handledVertexPress = true;
       movingVertex.current = Number(record.index) - 1;
       map.dragPan.disable();
@@ -372,6 +377,21 @@ export default function GeoMap({
     if (!map.getBounds().contains(coordinates)) map.jumpTo({ center: coordinates });
     return () => { marker.remove(); };
   }, [review]);
+
+  const homeLat = home?.latitude, homeLon = home?.longitude;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || homeLat == null || homeLon == null) return;
+    const tag = document.createElement("span");
+    tag.className = "station-review-pin";
+    tag.textContent = "H";
+    tag.title = "Flight-controller home";
+    const marker = new maplibregl.Marker({ element: tag }).setLngLat([homeLon, homeLat]).addTo(map);
+    return () => { marker.remove(); };
+  }, [homeLat, homeLon]);
+  useEffect(() => {
+    if (drawing) mapRef.current?.stop();
+  }, [drawing]);
 
   return <>
     <div ref={mount} className={drawing ? "map-canvas drawing" : "map-canvas"}
