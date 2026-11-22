@@ -11,3 +11,9 @@
 .session-metrics strong { font: 600 20px var(--station-ui); font-variant-numeric: tabular-nums; }
 .session-metrics small, .session-recorder footer { color: #bbb; font-size: 11px; }
 .session-recorder footer { margin-top: 7px; }
+
+.session-envelope { margin: 8px 0 4px; }
+.session-envelope figcaption { display: flex; justify-content: space-between; font-size: 11px; color: #bbb; }
+.session-envelope svg { display: block; width: 100%; height: 42px; cursor: crosshair; background: #181818; }
+.session-envelope path { fill: none; stroke: #ddd; }
+.session-envelope line { stroke: #f8be68; vector-effect: non-scaling-stroke; }
